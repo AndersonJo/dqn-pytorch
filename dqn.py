@@ -1,12 +1,15 @@
 import gym
 import gym_ple
 import cv2
-from torch import nn
+from torch import nn, optim
 from torch.autograd import Variable
 from torch.nn import functional as F
 from torchvision import transforms as T
 
 GAME_NAME = 'FlappyBird-v0'
+INITIAL_EPSILON = 1.0
+FINAL_EPSILON = 0.05
+EXPLORATION_STEPS = 1000000
 
 
 class ReplayMemory(object):
@@ -44,12 +47,13 @@ class Environment(object):
         self._toTensor = T.Compose([T.ToPILImage(), T.ToTensor()])
         gym_ple
 
-    def play_sample(self, mode='human'):
+    def play_sample(self, mode: str = 'human'):
         observation = self.game.reset()
 
         while True:
             screen = self.game.render(mode=mode)
-            # screen = self.preprocess(screen)
+            if mode == 'rgb_array':
+                screen = self.preprocess(screen)
             action = self.game.action_space.sample()
             observation, reward, done, info = self.game.step(action)
             if done:
@@ -57,7 +61,6 @@ class Environment(object):
         self.game.close()
 
     def preprocess(self, screen):
-
         preprocessed = cv2.resize(screen, (self.height, self.width))  # 84 * 84 로 변경
         preprocessed = preprocessed.transpose((2, 0, 1))  # (C, W, H) 로 변경
         return preprocessed
@@ -81,5 +84,34 @@ class Environment(object):
         return self.game.action_space.n
 
 
-env = Environment(GAME_NAME)
-env.play_sample()
+class Agent(object):
+    def __init__(self, cuda=True):
+        # Environment
+        self.env = Environment(GAME_NAME)
+
+        # DQN Model
+        self.dqn = DQN(self.env.action_space)
+        if cuda:
+            self.dqn.cuda()
+        self.optimizer = optim.RMSprop(self.dqn.parameters(), lr=0.007)
+
+        # Replay Memory
+        self.replay_momory = ReplayMemory()
+
+        # Epsilon
+        self.epsilon = INITIAL_EPSILON
+        self.epsilon_step = (INITIAL_EPSILON - FINAL_EPSILON) / EXPLORATION_STEPS  # 9.499999999999999e-07
+
+    def train(self):
+        pass
+
+
+def main():
+    env = Environment(GAME_NAME)
+    env.play_sample(mode='rgb_array')
+
+    # agent = Agent()
+
+
+if __name__ == '__main__':
+    main()
