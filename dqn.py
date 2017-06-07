@@ -3,6 +3,8 @@ from random import random
 import cv2
 import gym
 import gym_ple
+import pylab
+import torch
 from torch import nn, optim
 from torch.autograd import Variable
 from torch.nn import functional as F
@@ -76,7 +78,7 @@ class Environment(object):
 
     def get_screen(self):
         screen = self.game.render(mode='rgb_array')
-        screen = self.preprocess(screen)
+        # screen = self.preprocess(screen)
         return screen
 
     def toVariable(self, x):
@@ -118,20 +120,36 @@ class Agent(object):
         self.epsilon = INITIAL_EPSILON
         self.epsilon_decay = (INITIAL_EPSILON - FINAL_EPSILON) / EXPLORATION_STEPS  # 9.499999999999999e-07
 
-        print(self.epsilon, self.epsilon_step)
+        print(self.epsilon, self.epsilon_decay)
 
     def clone_dqn(self, dqn):
         return copy.deepcopy(dqn)
 
     def select_action(self, state):
         rand_value = random()
-        if self.epsilon < rand_value:
-            pass
+        if self.epsilon > rand_value:
+            # Random Action
+            action = self.env.game.action_space.sample()
+            return torch.LongTensor(action)
+
+
+        self.epsilon -= self.epsilon_decay
 
     def train(self, mode: str = 'rgb_array'):
         observation = self.env.reset()
         screen = self.env.get_screen()
+        screen = self.env.get_screen()
+        screen = self.env.get_screen()
+        screen = self.env.get_screen()
+        # screen = screen.transpose((1, 2, 0))
+        print(screen.shape)
+        print(screen)
 
+
+        pylab.imshow(screen)
+        pylab.show()
+
+        # self.select_action(state)
 
         # while True:
         # self.select_action(state)
