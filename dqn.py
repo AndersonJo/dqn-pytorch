@@ -1,12 +1,15 @@
+from random import random
+
+import cv2
 import gym
 import gym_ple
-import cv2
 from torch import nn, optim
 from torch.autograd import Variable
 from torch.nn import functional as F
 from torchvision import transforms as T
+import copy
 
-GAME_NAME = 'FlappyBird-v0'
+GAME_NAME = 'FlappyBird-v0'  # only Pygames are supported
 INITIAL_EPSILON = 1.0
 FINAL_EPSILON = 0.05
 EXPLORATION_STEPS = 1000000
@@ -79,6 +82,14 @@ class Environment(object):
     def toVariable(self, x):
         return Variable(self._toTensor(x).cuda())
 
+    def reset(self):
+        """
+        :return: observation array
+        """
+        observation = self.game.reset()
+        observation = self.preprocess(observation)
+        return observation
+
     @property
     def action_space(self):
         return self.game.action_space.n
@@ -90,9 +101,14 @@ class Agent(object):
         self.env = Environment(GAME_NAME)
 
         # DQN Model
-        self.dqn = DQN(self.env.action_space)
+        self.dqn: DQN = DQN(self.env.action_space)
         if cuda:
             self.dqn.cuda()
+
+        # DQN Target Model
+        self.target: DQN = copy.deepcopy(self.dqn)
+
+        # Optimizer
         self.optimizer = optim.RMSprop(self.dqn.parameters(), lr=0.007)
 
         # Replay Memory
@@ -100,17 +116,33 @@ class Agent(object):
 
         # Epsilon
         self.epsilon = INITIAL_EPSILON
-        self.epsilon_step = (INITIAL_EPSILON - FINAL_EPSILON) / EXPLORATION_STEPS  # 9.499999999999999e-07
+        self.epsilon_decay = (INITIAL_EPSILON - FINAL_EPSILON) / EXPLORATION_STEPS  # 9.499999999999999e-07
 
-    def train(self):
-        pass
+        print(self.epsilon, self.epsilon_step)
+
+    def clone_dqn(self, dqn):
+        return copy.deepcopy(dqn)
+
+    def select_action(self, state):
+        rand_value = random()
+        if self.epsilon < rand_value:
+            pass
+
+    def train(self, mode: str = 'rgb_array'):
+        observation = self.env.reset()
+        screen = self.env.get_screen()
+
+
+        # while True:
+        # self.select_action(state)
 
 
 def main():
-    env = Environment(GAME_NAME)
-    env.play_sample(mode='rgb_array')
+    # env = Environment(GAME_NAME)
+    # env.play_sample()
 
-    # agent = Agent()
+    agent = Agent()
+    agent.train()
 
 
 if __name__ == '__main__':
