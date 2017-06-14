@@ -13,7 +13,6 @@ from torch import nn, optim
 from torch.autograd import Variable
 from torch.nn import functional as F
 from torchvision import transforms as T
-from torchvision.transforms import ToTensor
 
 GAME_NAME = 'FlappyBird-v0'  # only Pygames are supported
 INITIAL_EPSILON = 1.0
@@ -21,7 +20,7 @@ FINAL_EPSILON = 0.05
 EXPLORATION_STEPS = 1000000
 TARGET_UPDATE_INTERVAL = 10000
 CHECKPOINT_STEPS = 5000
-BATCH_SIZE = 4  # TODO: 32로 변경해야됨
+BATCH_SIZE = 32  # TODO: 32로 변경해야됨
 
 
 class ReplayMemory(object):
@@ -224,7 +223,7 @@ class Agent(object):
                 self.replay.put(states, action, reward, next_states)
 
                 # Optimize
-                if self.step > BATCH_SIZE + 4:  # if self.step > BATCH_SIZE:
+                if self.step > BATCH_SIZE:
                     loss = self.optimize(gamma)
                     losses.append(loss[0])
 

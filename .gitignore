@@ -4,3 +4,6 @@
 
 # Python
 *.pyc
+
+# Model Data
+*.pth.tar
