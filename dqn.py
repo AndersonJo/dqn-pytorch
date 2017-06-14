@@ -20,7 +20,8 @@ INITIAL_EPSILON = 1.0
 FINAL_EPSILON = 0.05
 EXPLORATION_STEPS = 1000000
 TARGET_UPDATE_INTERVAL = 10000
-BATCH_SIZE = 32
+CHECKPOINT_STEPS = 5000
+BATCH_SIZE = 4  # TODO: 32로 변경해야됨
 
 
 class ReplayMemory(object):
@@ -29,11 +30,15 @@ class ReplayMemory(object):
         self.memory = deque(maxlen=self.capacity)
         self.Transition = namedtuple('Transition', ('state', 'action', 'reward', 'next_state'))
 
-    def put(self, state, action, reward, next_state):
-        # state = torch.FloatTensor(state)
-        # action = torch.FloatTensor(action)
-        # reward = torch.FloatTensor([reward])
-        # next_state = torch.FloatTensor(next_state)
+    def put(self, state: np.array, action: torch.LongTensor, reward: np.array, next_state: np.array):
+        """
+        저장시 모두 Torch Tensor로 변경해준다음에 저장을 합니다.
+        action은 select_action()함수에서부터 LongTensor로 리턴해주기 때문에,
+        여기서 변경해줄필요는 없음
+        """
+        state = torch.FloatTensor(state)
+        reward = torch.FloatTensor([reward])
+        next_state = torch.FloatTensor(next_state)
         transition = self.Transition(state=state, action=action, reward=reward, next_state=next_state)
         self.memory.append(transition)
 
@@ -108,8 +113,7 @@ class Environment(object):
         screen = self.preprocess(screen)
         return screen
 
-    def step(self, action: torch.LongTensor):
-        action = action.cpu().max()
+    def step(self, action: int):
         observation, reward, done, info = self.game.step(action)
         return observation, reward, done, info
 
@@ -154,18 +158,18 @@ class Agent(object):
         self.epsilon = INITIAL_EPSILON
         self.epsilon_decay = (INITIAL_EPSILON - FINAL_EPSILON) / EXPLORATION_STEPS  # 9.499999999999999e-07
 
-    def clone_dqn(self, dqn):
-        return copy.deepcopy(dqn)
-
     def select_action(self, states: np.array) -> torch.LongTensor:
+        """
+        :param states: 게임화면
+        :return: LongTensor (int64) 값이며, [[index]] 이런 형태를 갖고 있다.
+        추후 gather와 함께 쓰기 위해서 index값이 필요하다
+        """
         # Decrease epsilon value
         self.epsilon -= self.epsilon_decay
 
         if self.epsilon > random():
             # Random Action
-            action = np.zeros(self.env.game.action_space.n, dtype='int64')
-            action[self.env.game.action_space.sample()] = 1
-            action = torch.LongTensor(action)
+            action = torch.LongTensor([[self.env.game.action_space.sample()]])
             return action
 
         # max(dimension) 이 들어가며 tuple을 return값으로 내놓는다.
@@ -174,7 +178,7 @@ class Agent(object):
         # LongTensor에는 가장 큰 값의 index가 있다.
         states = states.reshape(1, 3, self.action_repeat, self.env.width, self.env.height)
         states_variable: Variable = Variable(torch.FloatTensor(states).cuda())
-        action = self.dqn(states_variable).data.max(1)
+        action = self.dqn(states_variable).data.cpu().max(1)[1]
         return action
 
     def get_initial_states(self):
@@ -193,49 +197,121 @@ class Agent(object):
     def recent_states(self):
         return np.array(self._state_buffer)
 
-    def train(self, mode: str = 'rgb_array'):
+    def train(self, gamma: float = 0.99, mode: str = 'rgb_array'):
 
         # Initial States
-        states = self.get_initial_states()
+
         self.step: int = 0
 
         while True:
-            # Get Action
-            action = self.select_action(states)
+            states = self.get_initial_states()
+            losses = []
+            checkpoint_flag = False
+            target_update_flag = False
+            play_steps = 0
+            while True:
+                # Get Action
+                action: torch.LongTensor = self.select_action(states)
 
-            # step 에서 나온 observation은 버림
-            observation, reward, done, info = self.env.step(action)
-            next_state = self.env.get_screen()
+                # step 에서 나온 observation은 버림
+                observation, reward, done, info = self.env.step(action[0, 0])
+                next_state = self.env.get_screen()
 
-            self.add_state(next_state)
+                self.add_state(next_state)
 
-            # Store the infomation in Replay Memory
-            next_states = self.recent_states()
-            self.replay.put(states, action, reward, next_states)
+                # Store the infomation in Replay Memory
+                next_states = self.recent_states()
+                self.replay.put(states, action, reward, next_states)
 
-            # Optimize
-            if self.step > BATCH_SIZE:
-                self.optimize()
-                break
+                # Optimize
+                if self.step > BATCH_SIZE + 4:  # if self.step > BATCH_SIZE:
+                    loss = self.optimize(gamma)
+                    losses.append(loss[0])
 
-            if done:
-                break
+                if done:
+                    break
 
-            # Increase step
-            self.step += 1
+                # Increase step
+                self.step += 1
+                play_steps += 1
 
-    def optimize(self):
+                # Target Update
+                if self.step % TARGET_UPDATE_INTERVAL == 0:
+                    self._target_update()
+                    target_update_flag = True
+
+                # Checkpoint
+                if self.step % CHECKPOINT_STEPS == 0:
+                    self.save_checkpoint(filename=f'dqn_checkpoints/checkpoint_{self.step}.pth.tar')
+                    checkpoint_flag = True
+
+            # Logging
+            mean_loss = np.mean(losses)
+            target_update_msg = '  [target updated]' if target_update_flag else ''
+            save_msg = '  [checkpoint!]' if checkpoint_flag else ''
+            print(f'[{self.step}] Loss:{mean_loss:<8.4} Play:{play_steps:<3} Epsilon:{self.epsilon:<6.4}'
+                  f'{target_update_msg}{save_msg}')
+
+    def optimize(self, gamma: float):
         transitions = self.replay.sample(BATCH_SIZE)
 
-        state_batch = Variable(torch.FloatTensor(np.array(transitions.state, dtype='float32')).cuda())
-        action_batch = Variable(torch.LongTensor(np.array(transitions.action, dtype='int64')).cuda())
-        reward_batch = Variable(torch.FloatTensor(np.array(transitions.reward, dtype='float32')).cuda())
+        try:
+            state_batch: Variable = Variable(torch.cat(transitions.state).cuda())
+            action_batch: Variable = Variable(torch.cat(transitions.action).cuda())
+            reward_batch: Variable = Variable(torch.cat(transitions.reward).cuda())
+            next_state_batch: Variable = Variable(torch.cat(transitions.next_state).cuda())
+        except Exception as e:
+            print('state', type(transitions.state))
+            print('state', len(transitions.state))
+
+            print('action', type(transitions.action))
+            print('action', len(transitions.action))
+
+            print('reward', type(transitions.reward))
+            print('reward', len(transitions.reward))
+
+            print('next_state', type(transitions.next_state))
+            print('next_state', len(transitions.next_state))
+
+            print(transitions.action)
+            raise e
 
         state_batch = state_batch.view([BATCH_SIZE, 3, self.action_repeat, self.env.width, self.env.height])
+        next_state_batch = next_state_batch.view([BATCH_SIZE, 3, self.action_repeat, self.env.width, self.env.height])
 
-        print(action_batch)
-        print(self.dqn(state_batch)[0])
-        print(self.dqn(state_batch).gather(1, action_batch))
+        q_values = self.dqn(state_batch).gather(1, action_batch)
+        target_values = self.target(next_state_batch).max(1)[0]
+
+        loss = F.smooth_l1_loss(q_values, reward_batch + (target_values * gamma))
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        for param in self.dqn.parameters():
+            param.grad.data.clamp_(-1, 1)
+        self.optimizer.step()
+
+        return loss.data.cpu().numpy()
+
+    def _target_update(self):
+        self.target = copy.deepcopy(self.dqn)
+
+    def save_checkpoint(self, filename='dqn_checkpoints/checkpoint.pth.tar'):
+        checkpoint = {
+            'dqn': self.dqn.state_dict(),
+            'target': self.target.state_dict(),
+            'optimizer': self.optimizer.state_dict(),
+            'step': self.step,
+            'epsilon': self.epsilon
+        }
+        torch.save(checkpoint, filename)
+
+    def load_checkpoint(self, filename='dqn_checkpoints/checkpoint.pth.tar'):
+        checkpoint = torch.load(filename)
+        self.dqn.load_state_dict(checkpoint['dqn'])
+        self.target.load_state_dict(checkpoint['target'])
+        self.optimizer.load_state_dict(checkpoint['optimizer'])
+        self.step = checkpoint['step']
+        self.epsilon = checkpoint['epsilon']
 
     def imshow(self, sample_image: np.array, transpose=True):
         if transpose:
@@ -250,6 +326,8 @@ def main():
 
     agent = Agent()
     agent.train()
+    agent.save_checkpoint()
+    agent.load_checkpoint()
 
 
 if __name__ == '__main__':
