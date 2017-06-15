@@ -1,6 +1,8 @@
 import argparse
 import copy
 import glob
+import math
+import re
 from collections import deque
 from collections import namedtuple
 from random import random, sample
@@ -10,7 +12,6 @@ import gym
 import gym_ple
 import numpy as np
 import pylab
-import re
 import torch
 from torch import nn, optim
 from torch.autograd import Variable
@@ -18,8 +19,12 @@ from torch.nn import functional as F
 from torchvision import transforms as T
 
 GAME_NAME = 'FlappyBird-v0'  # only Pygames are supported
-INITIAL_EPSILON = 1.0
-FINAL_EPSILON = 0.05
+
+# Epsilon
+EPSILON_START = 1.0
+EPSILON_END = 0.05
+EPSILON_DECAY = 20000
+
 EXPLORATION_STEPS = 1000000
 TARGET_UPDATE_INTERVAL = 10000
 CHECKPOINT_STEPS = 5000
@@ -166,8 +171,7 @@ class Agent(object):
         self.replay = ReplayMemory()
 
         # Epsilon
-        self.epsilon = INITIAL_EPSILON
-        self.epsilon_decay = (INITIAL_EPSILON - FINAL_EPSILON) / EXPLORATION_STEPS  # 9.499999999999999e-07
+        self.epsilon = EPSILON_START
 
     def select_action(self, states: np.array) -> torch.LongTensor:
         """
@@ -176,8 +180,7 @@ class Agent(object):
         추후 gather와 함께 쓰기 위해서 index값이 필요하다
         """
         # Decrease epsilon value
-        # TODO 이부분 다시
-        self.epsilon -= self.epsilon_decay
+        self.epsilon = EPSILON_START + (EPSILON_START - EPSILON_END) * math.exp(-1. * self.step / EPSILON_DECAY)
 
         if self.epsilon > random():
             # Random Action
@@ -348,9 +351,9 @@ class Agent(object):
 
             states = states.reshape(1, 3, self.action_repeat, self.env.width, self.env.height)
             states_variable: Variable = Variable(torch.FloatTensor(states).cuda())
-            action = self.dqn(states_variable).data.cpu().max(1)[1]
+            action = self.dqn(states_variable).data.cpu().max(1)[1][0, 0]
 
-            observation, reward, done, info = self.env.step(action[0, 0])
+            observation, reward, done, info = self.env.step(action)
 
             print(f'action:{action}, reward:{reward}')
 
