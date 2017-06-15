@@ -1,4 +1,6 @@
+import argparse
 import copy
+import glob
 from collections import deque
 from collections import namedtuple
 from random import random, sample
@@ -8,6 +10,7 @@ import gym
 import gym_ple
 import numpy as np
 import pylab
+import re
 import torch
 from torch import nn, optim
 from torch.autograd import Variable
@@ -20,7 +23,14 @@ FINAL_EPSILON = 0.05
 EXPLORATION_STEPS = 1000000
 TARGET_UPDATE_INTERVAL = 10000
 CHECKPOINT_STEPS = 5000
-BATCH_SIZE = 32  # TODO: 32로 변경해야됨
+BATCH_SIZE = 32
+
+parser = argparse.ArgumentParser(description='DQN Configuration')
+parser.add_argument('--step', default=None, type=int)
+parser.add_argument('--load_latest', default=True, type=bool)
+parser.add_argument('--checkpoint', default=None, type=str)
+parser.add_argument('--mode', default='play', type=str, help='[play, train]')
+parser.add_argument('--game', default='FlappyBird-v0', type=str, help='only Pygames are supported')
 
 
 class ReplayMemory(object):
@@ -130,14 +140,14 @@ class Environment(object):
 
 
 class Agent(object):
-    def __init__(self, cuda=True, action_repeat: int = 4):
+    def __init__(self, game: str, cuda=True, action_repeat: int = 4):
         # Init
         self.action_repeat: int = action_repeat
         self._state_buffer = deque(maxlen=self.action_repeat)
         self.step = 0
 
         # Environment
-        self.env = Environment(GAME_NAME)
+        self.env = Environment(game)
 
         # DQN Model
         self.dqn: DQN = DQN(self.env.action_space)
@@ -164,6 +174,7 @@ class Agent(object):
         추후 gather와 함께 쓰기 위해서 index값이 필요하다
         """
         # Decrease epsilon value
+        # TODO 이부분 다시
         self.epsilon -= self.epsilon_decay
 
         if self.epsilon > random():
@@ -221,6 +232,9 @@ class Agent(object):
                 # Store the infomation in Replay Memory
                 next_states = self.recent_states()
                 self.replay.put(states, action, reward, next_states)
+
+                # Change States
+                states = next_states
 
                 # Optimize
                 if self.step > BATCH_SIZE:
@@ -312,6 +326,40 @@ class Agent(object):
         self.step = checkpoint['step']
         self.epsilon = checkpoint['epsilon']
 
+    def load_latest_checkpoint(self):
+        r = re.compile('checkpoint_(?P<number>\d+)\.pth\.tar$')
+        files = glob.glob('dqn_checkpoints/checkpoint_*.pth.tar')
+        if files:
+            files = list(map(lambda x: [int(r.search(x).group('number')), x], files))
+            files = sorted(files, key=lambda x: x[0])
+            latest_file = files[-1][1]
+            self.load_checkpoint(latest_file)
+            print(f'latest checkpoint has been loaded - {latest_file}')
+        else:
+            print('no latest checkpoint')
+
+    def play(self):
+        observation = self.env.game.reset()
+        states = self.get_initial_states()
+        while True:
+            screen = self.env.game.render(mode='human')
+
+            states = states.reshape(1, 3, self.action_repeat, self.env.width, self.env.height)
+            states_variable: Variable = Variable(torch.FloatTensor(states).cuda())
+            action = self.dqn(states_variable).data.cpu().max(1)[1]
+
+            observation, reward, done, info = self.env.step(action[0, 0])
+
+            print(f'action:{action}, reward:{reward}')
+
+            next_state = self.env.get_screen()
+            self.add_state(next_state)
+            states = self.recent_states()
+
+            if done:
+                break
+        self.env.game.close()
+
     def imshow(self, sample_image: np.array, transpose=True):
         if transpose:
             sample_image = sample_image.transpose((1, 2, 0))
@@ -320,14 +368,19 @@ class Agent(object):
 
 
 def main():
-    # env = Environment(GAME_NAME)
-    # env.play_sample()
+    args = parser.parse_args()
 
-    agent = Agent()
-    agent.train()
-    agent.save_checkpoint()
-    agent.load_checkpoint()
+    agent = Agent(args.game)
+    if args.load_latest and not args.checkpoint:
+        agent.load_latest_checkpoint()
+    elif args.checkpoint:
+        agent.load_checkpoint(args.checkpoint)
 
+    if args.mode.lower() == 'play':
+        agent.play()
+    elif args.mode.lower() == 'train':
+        agent.train()
+        
 
 if __name__ == '__main__':
     main()
