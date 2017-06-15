@@ -20,15 +20,17 @@ from torchvision import transforms as T
 
 GAME_NAME = 'FlappyBird-v0'  # only Pygames are supported
 
+# Training
+BATCH_SIZE = 32
+
 # Epsilon
 EPSILON_START = 1.0
 EPSILON_END = 0.05
 EPSILON_DECAY = 20000
 
-EXPLORATION_STEPS = 1000000
+# ETC Options
 TARGET_UPDATE_INTERVAL = 10000
-CHECKPOINT_STEPS = 5000
-BATCH_SIZE = 32
+CHECKPOINT_INTERVAL = 5000
 
 parser = argparse.ArgumentParser(description='DQN Configuration')
 parser.add_argument('--step', default=None, type=int)
@@ -259,7 +261,7 @@ class Agent(object):
                     target_update_flag = True
 
                 # Checkpoint
-                if self.step % CHECKPOINT_STEPS == 0:
+                if self.step % CHECKPOINT_INTERVAL == 0:
                     self.save_checkpoint(filename=f'dqn_checkpoints/checkpoint_{self.step}.pth.tar')
                     checkpoint_flag = True
 
