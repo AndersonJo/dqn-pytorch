@@ -31,10 +31,12 @@ parser.add_argument('--load_latest', default=True, type=bool)
 parser.add_argument('--checkpoint', default=None, type=str)
 parser.add_argument('--mode', default='play', type=str, help='[play, train]')
 parser.add_argument('--game', default='FlappyBird-v0', type=str, help='only Pygames are supported')
+parser.add_argument('--epsilon', default=None, type=float,
+                    help='forcefully override epsilon value even if you load checkpoint')
 
 
 class ReplayMemory(object):
-    def __init__(self, capacity=50000):
+    def __init__(self, capacity=20000):
         self.capacity = capacity
         self.memory = deque(maxlen=self.capacity)
         self.Transition = namedtuple('Transition', ('state', 'action', 'reward', 'next_state'))
@@ -318,22 +320,22 @@ class Agent(object):
         }
         torch.save(checkpoint, filename)
 
-    def load_checkpoint(self, filename='dqn_checkpoints/checkpoint.pth.tar'):
+    def load_checkpoint(self, filename='dqn_checkpoints/checkpoint.pth.tar', epsilon=None):
         checkpoint = torch.load(filename)
         self.dqn.load_state_dict(checkpoint['dqn'])
         self.target.load_state_dict(checkpoint['target'])
         self.optimizer.load_state_dict(checkpoint['optimizer'])
         self.step = checkpoint['step']
-        self.epsilon = checkpoint['epsilon']
+        self.epsilon = epsilon if epsilon is not None else checkpoint['epsilon']
 
-    def load_latest_checkpoint(self):
+    def load_latest_checkpoint(self, epsilon=None):
         r = re.compile('checkpoint_(?P<number>\d+)\.pth\.tar$')
         files = glob.glob('dqn_checkpoints/checkpoint_*.pth.tar')
         if files:
             files = list(map(lambda x: [int(r.search(x).group('number')), x], files))
             files = sorted(files, key=lambda x: x[0])
             latest_file = files[-1][1]
-            self.load_checkpoint(latest_file)
+            self.load_checkpoint(latest_file, epsilon=epsilon)
             print(f'latest checkpoint has been loaded - {latest_file}')
         else:
             print('no latest checkpoint')
@@ -372,7 +374,7 @@ def main():
 
     agent = Agent(args.game)
     if args.load_latest and not args.checkpoint:
-        agent.load_latest_checkpoint()
+        agent.load_latest_checkpoint(epsilon=args.epsilon)
     elif args.checkpoint:
         agent.load_checkpoint(args.checkpoint)
 
@@ -380,7 +382,7 @@ def main():
         agent.play()
     elif args.mode.lower() == 'train':
         agent.train()
-        
+
 
 if __name__ == '__main__':
     main()
