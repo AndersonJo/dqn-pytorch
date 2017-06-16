@@ -182,7 +182,7 @@ class Agent(object):
         추후 gather와 함께 쓰기 위해서 index값이 필요하다
         """
         # Decrease epsilon value
-        self.epsilon = EPSILON_START + (EPSILON_START - EPSILON_END) * math.exp(-1. * self.step / EPSILON_DECAY)
+        self.epsilon = EPSILON_END + (EPSILON_START - EPSILON_END) * math.exp(-1. * self.step / EPSILON_DECAY)
 
         if self.epsilon > random():
             # Random Action
