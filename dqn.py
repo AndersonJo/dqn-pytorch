@@ -194,7 +194,7 @@ class Agent(object):
         # FloatTensor는 가장 큰 값
         # LongTensor에는 가장 큰 값의 index가 있다.
         states = states.reshape(1, 3, self.action_repeat, self.env.width, self.env.height)
-        states_variable: Variable = Variable(torch.FloatTensor(states).cuda())
+        states_variable: Variable = Variable(torch.FloatTensor(states).cuda(), volatile=True)
         action = self.dqn(states_variable).data.cpu().max(1)[1]
         return action
 
@@ -275,26 +275,10 @@ class Agent(object):
     def optimize(self, gamma: float):
         transitions = self.replay.sample(BATCH_SIZE)
 
-        try:
-            state_batch: Variable = Variable(torch.cat(transitions.state).cuda())
-            action_batch: Variable = Variable(torch.cat(transitions.action).cuda())
-            reward_batch: Variable = Variable(torch.cat(transitions.reward).cuda())
-            next_state_batch: Variable = Variable(torch.cat(transitions.next_state).cuda())
-        except Exception as e:
-            print('state', type(transitions.state))
-            print('state', len(transitions.state))
-
-            print('action', type(transitions.action))
-            print('action', len(transitions.action))
-
-            print('reward', type(transitions.reward))
-            print('reward', len(transitions.reward))
-
-            print('next_state', type(transitions.next_state))
-            print('next_state', len(transitions.next_state))
-
-            print(transitions.action)
-            raise e
+        state_batch: Variable = Variable(torch.cat(transitions.state).cuda())
+        action_batch: Variable = Variable(torch.cat(transitions.action).cuda())
+        reward_batch: Variable = Variable(torch.cat(transitions.reward).cuda())
+        next_state_batch: Variable = Variable(torch.cat(transitions.next_state).cuda())
 
         state_batch = state_batch.view([BATCH_SIZE, 3, self.action_repeat, self.env.width, self.env.height])
         next_state_batch = next_state_batch.view([BATCH_SIZE, 3, self.action_repeat, self.env.width, self.env.height])
