@@ -21,7 +21,7 @@ from torchvision import transforms as T
 GAME_NAME = 'FlappyBird-v0'  # only Pygames are supported
 
 # Training
-BATCH_SIZE = 32
+BATCH_SIZE = 16
 
 # Epsilon
 EPSILON_START = 1.0
