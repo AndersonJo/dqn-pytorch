@@ -155,6 +155,7 @@ class Agent(object):
         self.frame_skipping: int = frame_skipping
         self._state_buffer = deque(maxlen=self.action_repeat)
         self.step = 0
+        self._play_steps = deque(maxlen=5)
 
         # Environment
         self.env = Environment(game)
@@ -183,7 +184,8 @@ class Agent(object):
         추후 gather와 함께 쓰기 위해서 index값이 필요하다
         """
         # Decrease epsilon value
-        self.epsilon = EPSILON_END + (EPSILON_START - EPSILON_END) * math.exp(-1. * self.step / EPSILON_DECAY)
+        self.epsilon = EPSILON_END + (EPSILON_START - EPSILON_END) * \
+                                     math.exp(-1. * self.step / EPSILON_DECAY) + 5 / (1 + self.play_step)
 
         if self.epsilon > random():
             # Random Action
@@ -269,12 +271,14 @@ class Agent(object):
                     self.save_checkpoint(filename=f'dqn_checkpoints/checkpoint_{self.step}.pth.tar')
                     checkpoint_flag = True
 
+            self._play_steps.append(play_steps)
+
             # Logging
             mean_loss = np.mean(losses)
             target_update_msg = '  [target updated]' if target_update_flag else ''
             save_msg = '  [checkpoint!]' if checkpoint_flag else ''
-            print(f'[{self.step}] Loss:{mean_loss:<8.4} Play:{play_steps:<3} Epsilon:{self.epsilon:<6.4}'
-                  f'{target_update_msg}{save_msg}')
+            print(f'[{self.step}] Loss:{mean_loss:<8.4} Play:{play_steps:<3} AvgPlay:{self.play_step:<3.3} '
+                  f'Epsilon:{self.epsilon:<6.4}{target_update_msg}{save_msg}')
 
     def optimize(self, gamma: float):
         transitions = self.replay.sample(BATCH_SIZE)
@@ -357,6 +361,10 @@ class Agent(object):
             if done:
                 break
         self.env.game.close()
+
+    @property
+    def play_step(self):
+        return np.mean(self._play_steps)
 
     def _sum_params(self, model):
         return np.sum([torch.sum(p).data[0] for p in model.parameters()])
