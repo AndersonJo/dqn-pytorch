@@ -29,7 +29,7 @@ EPSILON_END = 0.05
 EPSILON_DECAY = 20000
 
 # ETC Options
-TARGET_UPDATE_INTERVAL = 10000
+TARGET_UPDATE_INTERVAL = 1500
 CHECKPOINT_INTERVAL = 5000
 
 parser = argparse.ArgumentParser(description='DQN Configuration')
@@ -149,9 +149,10 @@ class Environment(object):
 
 
 class Agent(object):
-    def __init__(self, game: str, cuda=True, action_repeat: int = 4):
+    def __init__(self, game: str, cuda=True, action_repeat: int = 4, frame_skipping=4):
         # Init
         self.action_repeat: int = action_repeat
+        self.frame_skipping: int = frame_skipping
         self._state_buffer = deque(maxlen=self.action_repeat)
         self.step = 0
 
@@ -230,11 +231,14 @@ class Agent(object):
                 # Get Action
                 action: torch.LongTensor = self.select_action(states)
 
-                # step 에서 나온 observation은 버림
-                observation, reward, done, info = self.env.step(action[0, 0])
-                next_state = self.env.get_screen()
+                for _ in range(self.frame_skipping):
+                    # step 에서 나온 observation은 버림
+                    observation, reward, done, info = self.env.step(action[0, 0])
+                    next_state = self.env.get_screen()
+                    self.add_state(next_state)
 
-                self.add_state(next_state)
+                    if done:
+                        break
 
                 # Store the infomation in Replay Memory
                 next_states = self.recent_states()
@@ -294,6 +298,9 @@ class Agent(object):
             param.grad.data.clamp_(-1, 1)
         self.optimizer.step()
 
+        # print('dqn:', self._sum_params(self.dqn))
+        # print('target:', self._sum_params(self.target))
+
         return loss.data.cpu().numpy()
 
     def _target_update(self):
@@ -350,6 +357,9 @@ class Agent(object):
             if done:
                 break
         self.env.game.close()
+
+    def _sum_params(self, model):
+        return np.sum([torch.sum(p).data[0] for p in model.parameters()])
 
     def imshow(self, sample_image: np.array, transpose=True):
         if transpose:
