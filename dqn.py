@@ -29,7 +29,7 @@ EPSILON_END = 0.05
 EPSILON_DECAY = 20000
 
 # ETC Options
-TARGET_UPDATE_INTERVAL = 1500
+TARGET_UPDATE_INTERVAL = 500
 CHECKPOINT_INTERVAL = 5000
 
 parser = argparse.ArgumentParser(description='DQN Configuration')
