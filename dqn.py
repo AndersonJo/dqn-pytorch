@@ -157,7 +157,7 @@ class Environment(object):
 
 
 class Agent(object):
-    def __init__(self, game: str, cuda=True, action_repeat: int = 4, frame_skipping=4):
+    def __init__(self, agrs: str, cuda=True, action_repeat: int = 4, frame_skipping=4):
         # Init
         self.action_repeat: int = action_repeat
         self.frame_skipping: int = frame_skipping
@@ -408,8 +408,10 @@ class Agent(object):
 
 def main():
     args = parser.parse_args()
+    print(type(args))
+    return
 
-    agent = Agent(args.game)
+    agent = Agent(args)
     if args.load_latest and not args.checkpoint:
         agent.load_latest_checkpoint()
     elif args.checkpoint:
