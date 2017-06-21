@@ -38,8 +38,6 @@ parser.add_argument('--load_latest', default=True, type=bool)
 parser.add_argument('--checkpoint', default=None, type=str)
 parser.add_argument('--mode', default='play', type=str, help='[play, train]')
 parser.add_argument('--game', default='FlappyBird-v0', type=str, help='only Pygames are supported')
-parser.add_argument('--epsilon', default=None, type=float,
-                    help='forcefully override epsilon value even if you load checkpoint')
 
 
 class ReplayMemory(object):
@@ -47,6 +45,7 @@ class ReplayMemory(object):
         self.capacity = capacity
         self.memory = deque(maxlen=self.capacity)
         self.Transition = namedtuple('Transition', ('state', 'action', 'reward', 'next_state'))
+        self._available = False
 
     def put(self, state: np.array, action: torch.LongTensor, reward: np.array, next_state: np.array):
         """
@@ -66,6 +65,14 @@ class ReplayMemory(object):
 
     def size(self):
         return len(self.memory)
+
+    def is_available(self):
+        if self._available:
+            return True
+
+        if len(self.memory) > BATCH_SIZE:
+            self._available = True
+        return self._available
 
 
 class DQN(nn.Module):
@@ -155,6 +162,7 @@ class Agent(object):
         self.frame_skipping: int = frame_skipping
         self._state_buffer = deque(maxlen=self.action_repeat)
         self.step = 0
+
         self._play_steps = deque(maxlen=5)
 
         # Environment
@@ -220,8 +228,6 @@ class Agent(object):
     def train(self, gamma: float = 0.99, mode: str = 'rgb_array'):
 
         # Initial States
-
-        self.step: int = 0
         reward_sum = 0.
         q_mean = 0.
         target_mean = 0.
@@ -253,7 +259,7 @@ class Agent(object):
                 states = next_states
 
                 # Optimize
-                if self.step > BATCH_SIZE:
+                if self.replay.is_available():
                     loss, reward_sum, q_mean, target_mean = self.optimize(gamma)
                     losses.append(loss[0])
 
@@ -285,6 +291,7 @@ class Agent(object):
                   f'Epsilon:{self.epsilon:<6.4}{target_update_msg}{save_msg}')
 
     def optimize(self, gamma: float):
+
         transitions = self.replay.sample(BATCH_SIZE)
 
         state_batch: Variable = Variable(torch.cat(transitions.state).cuda())
@@ -322,8 +329,7 @@ class Agent(object):
             'dqn': self.dqn.state_dict(),
             'target': self.target.state_dict(),
             'optimizer': self.optimizer.state_dict(),
-            'step': self.step,
-            'epsilon': self.epsilon
+            'step': self.step
         }
         torch.save(checkpoint, filename)
 
@@ -333,7 +339,6 @@ class Agent(object):
         self.target.load_state_dict(checkpoint['target'])
         self.optimizer.load_state_dict(checkpoint['optimizer'])
         self.step = checkpoint['step']
-        self.epsilon = epsilon if epsilon is not None else checkpoint['epsilon']
 
     def load_latest_checkpoint(self, epsilon=None):
         r = re.compile('checkpoint_(?P<number>\d+)\.pth\.tar$')
@@ -388,7 +393,7 @@ def main():
 
     agent = Agent(args.game)
     if args.load_latest and not args.checkpoint:
-        agent.load_latest_checkpoint(epsilon=args.epsilon)
+        agent.load_latest_checkpoint()
     elif args.checkpoint:
         agent.load_checkpoint(args.checkpoint)
 
