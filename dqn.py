@@ -55,7 +55,8 @@ class ReplayMemory(object):
         """
         state = torch.FloatTensor(state)
         reward = torch.FloatTensor([reward])
-        next_state = torch.FloatTensor(next_state)
+        if next_state is not None:
+            next_state = torch.FloatTensor(next_state)
         transition = self.Transition(state=state, action=action, reward=reward, next_state=next_state)
         self.memory.append(transition)
 
@@ -238,6 +239,9 @@ class Agent(object):
             checkpoint_flag = False
             target_update_flag = False
             play_steps = 0
+
+            reward = 0
+            done = False
             while True:
                 # Get Action
                 action: torch.LongTensor = self.select_action(states)
@@ -253,7 +257,10 @@ class Agent(object):
 
                 # Store the infomation in Replay Memory
                 next_states = self.recent_states()
-                self.replay.put(states, action, reward, next_states)
+                if done:
+                    self.replay.put(states, action, reward, None)
+                else:
+                    self.replay.put(states, action, reward, next_states)
 
                 # Change States
                 states = next_states
@@ -292,23 +299,34 @@ class Agent(object):
 
     def optimize(self, gamma: float):
 
+        # Get Sample
         transitions = self.replay.sample(BATCH_SIZE)
+
+        # Mask
+        non_final_mask = torch.ByteTensor(list(map(lambda ns: ns is not None, transitions.next_state))).cuda()
+        final_mask = 1 - non_final_mask
 
         state_batch: Variable = Variable(torch.cat(transitions.state).cuda())
         action_batch: Variable = Variable(torch.cat(transitions.action).cuda())
         reward_batch: Variable = Variable(torch.cat(transitions.reward).cuda())
-        next_state_batch: Variable = Variable(torch.cat(transitions.next_state).cuda())
+        non_final_next_state_batch = Variable(torch.cat([ns for ns in transitions.next_state if ns is not None]).cuda())
+        # next_state_batch: Variable = Variable(torch.cat(non_final_next_state).cuda())
 
         state_batch = state_batch.view([BATCH_SIZE, 3, self.action_repeat, self.env.width, self.env.height])
-        next_state_batch = next_state_batch.view([BATCH_SIZE, 3, self.action_repeat, self.env.width, self.env.height])
+        non_final_next_state_batch = non_final_next_state_batch.view(
+            [-1, 3, self.action_repeat, self.env.width, self.env.height])
 
         q_values = self.dqn(state_batch).gather(1, action_batch)
-        target_values = self.target(next_state_batch).max(1)[0]
+        target_values = Variable(torch.zeros(BATCH_SIZE, 1).cuda())
+        target_values[non_final_mask] = reward_batch[non_final_mask] + \
+                                        self.target(non_final_next_state_batch).max(1)[0] * gamma
 
-        loss = F.smooth_l1_loss(q_values, reward_batch + (target_values * gamma))
+        target_values[final_mask] = reward_batch[final_mask]
 
+        loss = F.smooth_l1_loss(q_values, target_values)
         self.optimizer.zero_grad()
         loss.backward()
+
         for param in self.dqn.parameters():
             param.grad.data.clamp_(-1, 1)
         self.optimizer.step()
