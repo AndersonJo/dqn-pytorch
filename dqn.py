@@ -33,11 +33,15 @@ TARGET_UPDATE_INTERVAL = 500
 CHECKPOINT_INTERVAL = 5000
 
 parser = argparse.ArgumentParser(description='DQN Configuration')
-parser.add_argument('--step', default=None, type=int)
-parser.add_argument('--load_latest', default=True, type=bool)
-parser.add_argument('--checkpoint', default=None, type=str)
-parser.add_argument('--mode', default='play', type=str, help='[play, train]')
+parser.add_argument('--step', default=None, type=int, help='forcefully set step')
+parser.add_argument('--load_latest', dest='load_latest', action='store_true', help='load latest checkpoint')
+parser.add_argument('--no_load_latest', dest='load_latest', action='store_false', help='train from the scrach')
+parser.add_argument('--checkpoint', default=None, type=str, help='specify the checkpoint file name')
+parser.add_argument('--mode', dest='mode', default='play', type=str, help='[play, train]')
 parser.add_argument('--game', default='FlappyBird-v0', type=str, help='only Pygames are supported')
+parser.add_argument('--clip', dest='clip', action='store_true', help='clipping the delta between -1 and 1')
+parser.add_argument('--noclip', dest='clip', action='store_false', help='not clipping the delta')
+parser.set_defaults(clip=True, load_latest=True)
 
 
 class ReplayMemory(object):
@@ -157,8 +161,9 @@ class Environment(object):
 
 
 class Agent(object):
-    def __init__(self, agrs: str, cuda=True, action_repeat: int = 4, frame_skipping=4):
+    def __init__(self, agrs: argparse.Namespace, cuda=True, action_repeat: int = 4, frame_skipping=4):
         # Init
+        self.clip: bool = agrs.clip
         self.action_repeat: int = action_repeat
         self.frame_skipping: int = frame_skipping
         self._state_buffer = deque(maxlen=self.action_repeat)
@@ -167,7 +172,7 @@ class Agent(object):
         self._play_steps = deque(maxlen=5)
 
         # Environment
-        self.env = Environment(game)
+        self.env = Environment(agrs.game)
 
         # DQN Model
         self.dqn: DQN = DQN(self.env.action_space)
@@ -327,8 +332,9 @@ class Agent(object):
         self.optimizer.zero_grad()
         loss.backward()
 
-        for param in self.dqn.parameters():
-            param.grad.data.clamp_(-1, 1)
+        if self.clip:
+            for param in self.dqn.parameters():
+                param.grad.data.clamp_(-1, 1)
         self.optimizer.step()
 
         # print('dqn:', self._sum_params(self.dqn))
@@ -407,14 +413,13 @@ class Agent(object):
 
 
 def main():
-    args = parser.parse_args()
-    print(type(args))
-    return
+    args: argparse.Namespace = parser.parse_args()
 
     agent = Agent(args)
     if args.load_latest and not args.checkpoint:
         agent.load_latest_checkpoint()
     elif args.checkpoint:
+        raise Exception
         agent.load_checkpoint(args.checkpoint)
 
     if args.mode.lower() == 'play':
