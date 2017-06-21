@@ -95,7 +95,7 @@ class DQN(nn.Module):
         h = F.leaky_relu(self.bn1(self.conv1(x)))
         h = F.leaky_relu(self.bn2(self.conv2(h)))
         h = F.leaky_relu(self.bn3(self.conv3(h)))
-        h = self.affine1(h.view(h.size(0), -1))
+        h = F.sigmoid(self.affine1(h.view(h.size(0), -1)))
         h = self.affine2(h)
         return h
 
@@ -287,7 +287,7 @@ class Agent(object):
             target_update_msg = '  [target updated]' if target_update_flag else ''
             save_msg = '  [checkpoint!]' if checkpoint_flag else ''
             print(f'[{self.step}] Loss:{mean_loss:<8.4} Play:{play_steps:<3} AvgPlay:{self.play_step:<4.3} '
-                  f'RewardSum:{reward_sum:<4} Q:{q_mean:<6.4} T:{target_mean:<6.4} '
+                  f'RewardSum:{reward_sum:<3} Q:{q_mean:<4.2} T:{target_mean:<4.2} '
                   f'Epsilon:{self.epsilon:<6.4}{target_update_msg}{save_msg}')
 
     def optimize(self, gamma: float):
