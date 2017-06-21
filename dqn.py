@@ -222,6 +222,9 @@ class Agent(object):
         # Initial States
 
         self.step: int = 0
+        reward_sum = 0.
+        q_mean = 0.
+        target_mean = 0.
 
         while True:
             states = self.get_initial_states()
@@ -251,7 +254,7 @@ class Agent(object):
 
                 # Optimize
                 if self.step > BATCH_SIZE:
-                    loss = self.optimize(gamma)
+                    loss, reward_sum, q_mean, target_mean = self.optimize(gamma)
                     losses.append(loss[0])
 
                 if done:
@@ -277,7 +280,8 @@ class Agent(object):
             mean_loss = np.mean(losses)
             target_update_msg = '  [target updated]' if target_update_flag else ''
             save_msg = '  [checkpoint!]' if checkpoint_flag else ''
-            print(f'[{self.step}] Loss:{mean_loss:<8.4} Play:{play_steps:<3} AvgPlay:{self.play_step:<3.3} '
+            print(f'[{self.step}] Loss:{mean_loss:<8.4} Play:{play_steps:<3} AvgPlay:{self.play_step:<4.3} '
+                  f'RewardSum:{reward_sum:<4} Q:{q_mean:<6.4} T:{target_mean:<6.4} '
                   f'Epsilon:{self.epsilon:<6.4}{target_update_msg}{save_msg}')
 
     def optimize(self, gamma: float):
@@ -305,7 +309,10 @@ class Agent(object):
         # print('dqn:', self._sum_params(self.dqn))
         # print('target:', self._sum_params(self.target))
 
-        return loss.data.cpu().numpy()
+        reward_score = int(torch.sum(reward_batch).data.cpu().numpy()[0])
+        q_mean = torch.mean(q_values).data.cpu().numpy()[0]
+        target_mean = torch.mean(target_values).data.cpu().numpy()[0]
+        return loss.data.cpu().numpy(), reward_score, q_mean, target_mean
 
     def _target_update(self):
         self.target = copy.deepcopy(self.dqn)
