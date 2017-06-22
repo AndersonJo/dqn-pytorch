@@ -199,7 +199,7 @@ class Agent(object):
         """
         # Decrease epsilon value
         self.epsilon = EPSILON_END + (EPSILON_START - EPSILON_END) * \
-                                     math.exp(-1. * self.step / EPSILON_DECAY) + 5 / (1 + self.play_step)
+                                     math.exp(-1. * self.step / EPSILON_DECAY)  # + 5 / (1 + self.play_step)
 
         if self.epsilon > random():
             # Random Action
