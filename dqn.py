@@ -315,11 +315,12 @@ class Agent(object):
         action_batch: Variable = Variable(torch.cat(transitions.action).cuda())
         reward_batch: Variable = Variable(torch.cat(transitions.reward).cuda())
         non_final_next_state_batch = Variable(torch.cat([ns for ns in transitions.next_state if ns is not None]).cuda())
-        # next_state_batch: Variable = Variable(torch.cat(non_final_next_state).cuda())
+        non_final_next_state_batch.volatile = True
 
         state_batch = state_batch.view([BATCH_SIZE, 3, self.action_repeat, self.env.width, self.env.height])
         non_final_next_state_batch = non_final_next_state_batch.view(
             [-1, 3, self.action_repeat, self.env.width, self.env.height])
+        non_final_next_state_batch.volatile = True
 
         q_values = self.dqn(state_batch).gather(1, action_batch)
         target_values = Variable(torch.zeros(BATCH_SIZE, 1).cuda())
