@@ -310,8 +310,8 @@ class Agent(object):
             target_update_msg = '  [target updated]' if target_update_flag else ''
             save_msg = '  [checkpoint!]' if checkpoint_flag else ''
             print(f'[{self.step}] Loss:{mean_loss:<8.4} Play:{play_steps:<3}  '  # AvgPlay:{self.play_step:<4.3}  
-                  f'RewardSum:{reward_sum:<3} Q:[{q_mean[0]:<3.2}, {q_mean[1]:<3.2}] '
-                  f'T:[{target_mean[0]:<3.2}, {target_mean[1]:<3.2}] '
+                  f'RewardSum:{reward_sum:<3} Q:[{q_mean[0]:<6.2}, {q_mean[1]:<6.2}] '
+                  f'T:[{target_mean[0]:<6.2}, {target_mean[1]:<6.2}] '
                   f'Epsilon:{self.epsilon:<6.4}{target_update_msg}{save_msg}')
 
     def optimize(self, gamma: float):
