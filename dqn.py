@@ -2,6 +2,7 @@ import argparse
 import copy
 import glob
 import math
+import os
 import re
 from collections import deque
 from collections import namedtuple
@@ -85,23 +86,31 @@ class DQN(nn.Module):
         super(DQN, self).__init__()
         self.n_action = n_action
 
-        self.conv1 = nn.Conv3d(3, 16, kernel_size=5, stride=1, padding=1)  # (In Channel, Out Channel, ...)
-        self.conv2 = nn.Conv3d(16, 32, kernel_size=4, stride=1, padding=1)
-        self.conv3 = nn.Conv3d(32, 32, kernel_size=3, stride=1, padding=1)
+        self.conv1 = nn.Conv2d(4, 16, kernel_size=5, stride=1, padding=2)  # (In Channel, Out Channel, ...)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=5, stride=1, padding=2)
+        self.conv3 = nn.Conv2d(32, 32, kernel_size=5, stride=1, padding=2)
 
-        self.bn1 = nn.BatchNorm3d(16)
-        self.bn2 = nn.BatchNorm3d(32)
-        self.bn3 = nn.BatchNorm3d(32)
+        self.bn1 = nn.BatchNorm2d(16)
+        self.bn2 = nn.BatchNorm2d(32)
+        self.bn3 = nn.BatchNorm2d(32)
 
-        self.affine1 = nn.Linear(209952, 256)
-        self.affine2 = nn.Linear(256, self.n_action)
+        self.affine1 = nn.Linear(225792, 1024)
+        self.affine2 = nn.Linear(1024, 256)
+        self.affine3 = nn.Linear(256, self.n_action)
+
+        self.bn10 = nn.BatchNorm1d(1024)
+        self.bn11 = nn.BatchNorm1d(256)
 
     def forward(self, x):
         h = F.leaky_relu(self.bn1(self.conv1(x)))
         h = F.leaky_relu(self.bn2(self.conv2(h)))
         h = F.leaky_relu(self.bn3(self.conv3(h)))
-        h = F.sigmoid(self.affine1(h.view(h.size(0), -1)))
-        h = self.affine2(h)
+        # print(h.size())
+        # print(h.view(h.size(0), -1).size())
+
+        h = F.relu(self.bn10(self.affine1(h.view(h.size(0), -1))))
+        h = F.relu(self.bn11(self.affine2(h)))
+        h = self.affine3(h)
         return h
 
 
@@ -128,8 +137,10 @@ class Environment(object):
 
     def preprocess(self, screen):
         preprocessed: np.array = cv2.resize(screen, (self.height, self.width))  # 84 * 84 로 변경
-        preprocessed: np.array = preprocessed.transpose((2, 0, 1))  # (C, W, H) 로 변경
+        preprocessed = np.dot(preprocessed[..., :3], [0.299, 0.587, 0.114])  # Gray scale 로 변경
+        # preprocessed: np.array = preprocessed.transpose((2, 0, 1))  # (C, W, H) 로 변경
         preprocessed: np.array = preprocessed.astype('float32') / 255.
+
         return preprocessed
 
     def init(self):
@@ -210,7 +221,7 @@ class Agent(object):
         # tuple안에는 (FloatTensor, LongTensor)가 있으며
         # FloatTensor는 가장 큰 값
         # LongTensor에는 가장 큰 값의 index가 있다.
-        states = states.reshape(1, 3, self.action_repeat, self.env.width, self.env.height)
+        states = states.reshape(1, self.action_repeat, self.env.width, self.env.height)
         states_variable: Variable = Variable(torch.FloatTensor(states).cuda(), volatile=True)
         action = self.dqn(states_variable).data.cpu().max(1)[1]
         return action
@@ -235,8 +246,8 @@ class Agent(object):
 
         # Initial States
         reward_sum = 0.
-        q_mean = 0.
-        target_mean = 0.
+        q_mean = [0., 0.]
+        target_mean = [0., 0.]
 
         while True:
             states = self.get_initial_states()
@@ -298,8 +309,9 @@ class Agent(object):
             mean_loss = np.mean(losses)
             target_update_msg = '  [target updated]' if target_update_flag else ''
             save_msg = '  [checkpoint!]' if checkpoint_flag else ''
-            print(f'[{self.step}] Loss:{mean_loss:<8.4} Play:{play_steps:<3} AvgPlay:{self.play_step:<4.3} '
-                  f'RewardSum:{reward_sum:<3} Q:{q_mean:<5.3} T:{target_mean:<5.3} '
+            print(f'[{self.step}] Loss:{mean_loss:<8.4} Play:{play_steps:<3}  '  # AvgPlay:{self.play_step:<4.3}  
+                  f'RewardSum:{reward_sum:<3} Q:[{q_mean[0]:<3.2}, {q_mean[1]:<3.2}] '
+                  f'T:[{target_mean[0]:<3.2}, {target_mean[1]:<3.2}] '
                   f'Epsilon:{self.epsilon:<6.4}{target_update_msg}{save_msg}')
 
     def optimize(self, gamma: float):
@@ -317,16 +329,21 @@ class Agent(object):
         non_final_next_state_batch = Variable(torch.cat([ns for ns in transitions.next_state if ns is not None]).cuda())
         non_final_next_state_batch.volatile = True
 
-        state_batch = state_batch.view([BATCH_SIZE, 3, self.action_repeat, self.env.width, self.env.height])
+        state_batch = state_batch.view([BATCH_SIZE, self.action_repeat, self.env.width, self.env.height])
         non_final_next_state_batch = non_final_next_state_batch.view(
-            [-1, 3, self.action_repeat, self.env.width, self.env.height])
+            [-1, self.action_repeat, self.env.width, self.env.height])
+
+        # state_batch = state_batch.view([BATCH_SIZE, 3, self.action_repeat, self.env.width, self.env.height])
+        # non_final_next_state_batch = non_final_next_state_batch.view(
+        #     [-1, 3, self.action_repeat, self.env.width, self.env.height])
         non_final_next_state_batch.volatile = True
 
-        q_values = self.dqn(state_batch).gather(1, action_batch)
-        target_values = Variable(torch.zeros(BATCH_SIZE, 1).cuda())
-        target_values[non_final_mask] = reward_batch[non_final_mask] + \
-                                        self.target(non_final_next_state_batch).max(1)[0] * gamma
+        q_pred = self.dqn(state_batch)
+        q_values = q_pred.gather(1, action_batch)
 
+        target_values = Variable(torch.zeros(BATCH_SIZE, 1).cuda())
+        target_pred = self.target(non_final_next_state_batch)
+        target_values[non_final_mask] = reward_batch[non_final_mask] + target_pred.max(1)[0] * gamma
         target_values[final_mask] = reward_batch[final_mask]
 
         loss = F.smooth_l1_loss(q_values, target_values)
@@ -341,15 +358,26 @@ class Agent(object):
         # print('dqn:', self._sum_params(self.dqn))
         # print('target:', self._sum_params(self.target))
 
+        # actions = np.zeros((BATCH_SIZE, self.env.action_space))
+        # actions[np.arange(BATCH_SIZE), action_batch.data.cpu().numpy().reshape(-1)] = 1
+        # actions = np.sum(actions, axis=0).astype('int').tolist()
+
         reward_score = int(torch.sum(reward_batch).data.cpu().numpy()[0])
-        q_mean = torch.mean(q_values).data.cpu().numpy()[0]
-        target_mean = torch.mean(target_values).data.cpu().numpy()[0]
+        q_mean = torch.mean(q_pred, 0).data.cpu().numpy()[0]
+        target_mean = torch.mean(target_pred, 0).data.cpu().numpy()[0]
+        # q_mean = torch.mean(q_values).data.cpu().numpy()[0]
+        # target_mean = torch.mean(target_values).data.cpu().numpy()[0]
         return loss.data.cpu().numpy(), reward_score, q_mean, target_mean
 
     def _target_update(self):
         self.target = copy.deepcopy(self.dqn)
 
     def save_checkpoint(self, filename='dqn_checkpoints/checkpoint.pth.tar'):
+        dirpath = os.path.dirname(filename)
+
+        if not os.path.exists(dirpath):
+            os.mkdir(dirpath)
+
         checkpoint = {
             'dqn': self.dqn.state_dict(),
             'target': self.target.state_dict(),
@@ -409,7 +437,7 @@ class Agent(object):
     def imshow(self, sample_image: np.array, transpose=True):
         if transpose:
             sample_image = sample_image.transpose((1, 2, 0))
-        pylab.imshow(sample_image)
+        pylab.imshow(sample_image, cmap='gray')
         pylab.show()
 
 
