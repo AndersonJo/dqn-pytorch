@@ -43,6 +43,7 @@ parser.add_argument('--mode', dest='mode', default='play', type=str, help='[play
 parser.add_argument('--game', default='FlappyBird-v0', type=str, help='only Pygames are supported')
 parser.add_argument('--clip', dest='clip', action='store_true', help='clipping the delta between -1 and 1')
 parser.add_argument('--noclip', dest='clip', action='store_false', help='not clipping the delta')
+parser.add_argument('--skip_action', default=2, type=int, help='Skipping actions')
 parser.set_defaults(clip=True, load_latest=True)
 
 
@@ -189,18 +190,18 @@ class Environment(object):
 
 
 class Agent(object):
-    def __init__(self, agrs: argparse.Namespace, cuda=True, action_repeat: int = 4, frame_skipping=2):
+    def __init__(self, args: argparse.Namespace, cuda=True, action_repeat: int = 4):
         # Init
-        self.clip: bool = agrs.clip
+        self.clip: bool = args.clip
         self.action_repeat: int = action_repeat
-        self.frame_skipping: int = frame_skipping
+        self.frame_skipping: int = args.skip_action
         self._state_buffer = deque(maxlen=self.action_repeat)
         self.step = 0
 
         self._play_steps = deque(maxlen=5)
 
         # Environment
-        self.env = Environment(agrs.game)
+        self.env = Environment(args.game)
 
         # DQN Model
         self.dqn: DQN = DQN(self.env.action_space)
@@ -441,7 +442,7 @@ class Agent(object):
             dqn_pred = self.dqn(states_variable)
             action = dqn_pred.data.cpu().max(1)[1][0, 0]
 
-            for _ in range(self.action_repeat):
+            for _ in range(self.frame_skipping):
                 screen = self.env.game.render(mode='human')
                 observation, reward, done, info = self.env.step(action)
 
