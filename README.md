@@ -6,6 +6,7 @@ The implementation of Deep Q Learning with Pytorch.
 * Simple Deep Q Learning (not using A3C or Dueling) 
 * Used Pytorch
 * Frame Skipping 
+* Target Network (for stability when training)
 * Python 3.x (I used Python 3.6)
 
 Here you can see the explanation of DQN algorithm. <br>
