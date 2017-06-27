@@ -329,6 +329,8 @@ class Agent(object):
         non_final_next_state_batch = Variable(torch.cat([ns for ns in transitions.next_state if ns is not None]).cuda())
         non_final_next_state_batch.volatile = True
 
+        print(non_final_next_state_batch.size())
+
         state_batch = state_batch.view([BATCH_SIZE, self.action_repeat, self.env.width, self.env.height])
         non_final_next_state_batch = non_final_next_state_batch.view(
             [-1, self.action_repeat, self.env.width, self.env.height])
@@ -363,8 +365,8 @@ class Agent(object):
         # actions = np.sum(actions, axis=0).astype('int').tolist()
 
         reward_score = int(torch.sum(reward_batch).data.cpu().numpy()[0])
-        q_mean = torch.mean(q_pred, 0).data.cpu().numpy()[0]
-        target_mean = torch.mean(target_pred, 0).data.cpu().numpy()[0]
+        q_mean = torch.sum(q_pred, 0).data.cpu().numpy()[0]
+        target_mean = torch.sum(target_pred, 0).data.cpu().numpy()[0]
         # q_mean = torch.mean(q_values).data.cpu().numpy()[0]
         # target_mean = torch.mean(target_values).data.cpu().numpy()[0]
         return loss.data.cpu().numpy(), reward_score, q_mean, target_mean
@@ -411,7 +413,7 @@ class Agent(object):
         while True:
             screen = self.env.game.render(mode='human')
 
-            states = states.reshape(1, 3, self.action_repeat, self.env.width, self.env.height)
+            states = states.reshape(1, self.action_repeat, self.env.width, self.env.height)
             states_variable: Variable = Variable(torch.FloatTensor(states).cuda())
             action = self.dqn(states_variable).data.cpu().max(1)[1][0, 0]
 
