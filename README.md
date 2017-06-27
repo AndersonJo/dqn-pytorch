@@ -62,3 +62,12 @@ python3 dqn.py --mode=play
 ```
 python3 dqn.py --mode=play --record 
 ```
+
+## How to convert video to GIF file
+
+```
+mkdir frames
+ffmpeg -i video.mp4 -qscale:v 2  -r 25 'frames/frame-%03d.jpg'
+cd frames
+convert -delay 4 -loop 0 *.jpg myimage.gif
+```
