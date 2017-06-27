@@ -217,7 +217,7 @@ class Agent(object):
         self.target: DQN = copy.deepcopy(self.dqn)
 
         # Optimizer
-        self.optimizer = optim.Adam(self.dqn.parameters(), lr=0.001)
+        self.optimizer = optim.Adam(self.dqn.parameters())
 
         # Replay Memory
         self.replay = ReplayMemory()
@@ -233,7 +233,7 @@ class Agent(object):
         """
         # Decrease epsilon value
         self.epsilon = EPSILON_END + (EPSILON_START - EPSILON_END) * \
-                                     math.exp(-1. * self.step / EPSILON_DECAY)  # + 5 / (1 + self.play_step)
+                                     math.exp(-1. * self.step / EPSILON_DECAY) + 6 / (1 + self.play_step)
 
         if self.epsilon > random():
             # Random Action
@@ -352,9 +352,13 @@ class Agent(object):
         non_final_next_state_batch = Variable(torch.cat([ns for ns in transitions.next_state if ns is not None]).cuda())
         non_final_next_state_batch.volatile = True
 
+        # Reshape States and Next States
         state_batch = state_batch.view([BATCH_SIZE, self.action_repeat, self.env.width, self.env.height])
         non_final_next_state_batch = non_final_next_state_batch.view(
             [-1, self.action_repeat, self.env.width, self.env.height])
+
+        # Clipping Reward between -1 and 1
+        reward_batch.data.clamp_(-1, 1)
 
         # state_batch = state_batch.view([BATCH_SIZE, 3, self.action_repeat, self.env.width, self.env.height])
         # non_final_next_state_batch = non_final_next_state_batch.view(
