@@ -47,17 +47,26 @@ sudo pip3 install -e .
 
 ## Training
 
+Before training, you need to make a "dqn_checkpoints" directory for saving model automatically. 
+
 ```
+mkdir dqn_checkpoints
 python3 dqn.py --mode=train
 ```
 
 ## Playing 
+
+It automatically loads the latest checkpoint (it loads saved model parameters). <br>
+But first, you need to train it.<br>
+If there is no checkpoint (You might have not trained it yet), the play is just simply random walk. 
 
 ```
 python3 dqn.py --mode=play
 ```
 
 ## Recoding
+
+If you want to record game play, just do like this. 
 
 ```
 python3 dqn.py --mode=play --record 
