@@ -27,7 +27,7 @@ BATCH_SIZE = 32
 # Epsilon
 EPSILON_START = 1.0
 EPSILON_END = 0.05
-EPSILON_DECAY = 50000
+EPSILON_DECAY = 40000
 
 # ETC Options
 TARGET_UPDATE_INTERVAL = 500
@@ -412,8 +412,9 @@ class Agent(object):
     def play(self):
         observation = self.env.game.reset()
         states = self.get_initial_states()
+        count = 0
         while True:
-            screen = self.env.game.render(mode='human')
+            # screen = self.env.game.render(mode='human')
 
             states = states.reshape(1, self.action_repeat, self.env.width, self.env.height)
             # self.imshow(states[0, -1], transpose=False)
@@ -426,18 +427,21 @@ class Agent(object):
             dqn_pred = self.dqn(states_variable)
             action = dqn_pred.data.cpu().max(1)[1][0, 0]
 
-            observation, reward, done, info = self.env.step(action)
+            for _ in range(self.action_repeat):
+                screen = self.env.game.render(mode='human')
+                observation, reward, done, info = self.env.step(action)
 
-            # States <- Next States
-            next_state = self.env.get_screen()
-            self.add_state(next_state)
-            states = self.recent_states()
-            # self.imshow(states[0], transpose=False)
-            # self.imshow(states[3], transpose=False)
+                # States <- Next States
+                next_state = self.env.get_screen()
+                self.add_state(next_state)
+                states = self.recent_states()
+                # self.imshow(states[0], transpose=False)
+                # self.imshow(states[3], transpose=False)
 
             # Logging
+            count += 1
             action_dist = torch.sum(dqn_pred, 0).data.cpu().numpy()[0]
-            print(f'action:{action} {action_dist}, reward:{reward}')
+            print(f'[{count}] action:{action} {action_dist}, reward:{reward}')
 
             if done:
                 break
