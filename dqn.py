@@ -89,28 +89,32 @@ class DQN(nn.Module):
         super(DQN, self).__init__()
         self.n_action = n_action
 
-        self.conv1 = nn.Conv2d(4, 32, kernel_size=5, stride=2, padding=1)  # (In Channel, Out Channel, ...)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=5, stride=2, padding=1)
+        self.conv1 = nn.Conv2d(4, 32, kernel_size=8, stride=2, padding=1)  # (In Channel, Out Channel, ...)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=6, stride=2, padding=1)
         self.conv3 = nn.Conv2d(64, 64, kernel_size=5, stride=2, padding=1)
-        self.conv4 = nn.Conv2d(64, 64, kernel_size=5, stride=2, padding=1)
+        self.conv4 = nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1)
+        self.conv5 = nn.Conv2d(128, 128, kernel_size=4, stride=1, padding=1)
 
         self.bn1 = nn.BatchNorm2d(32)
         self.bn2 = nn.BatchNorm2d(64)
         self.bn3 = nn.BatchNorm2d(64)
-        self.bn4 = nn.BatchNorm2d(64)
+        self.bn4 = nn.BatchNorm2d(128)
+        self.bn5 = nn.BatchNorm2d(128)
 
         self.dropout1 = nn.Dropout2d(0.4)
         self.dropout2 = nn.Dropout2d(0.4)
         self.dropout3 = nn.Dropout2d(0.3)
         self.dropout4 = nn.Dropout2d(0.3)
+        self.dropout5 = nn.Dropout2d(0.3)
 
-        self.affine1 = nn.Linear(1024, 512)
+        self.affine1 = nn.Linear(1152, 512)
         self.affine2 = nn.Linear(512, 256)
         self.affine3 = nn.Linear(256, self.n_action)
 
         self.dropout10 = nn.Dropout(0.3)
-        self.dropout11 = nn.Dropout(0.3)
-        # self.bn10 = nn.BatchNorm2d(2048)
+        self.dropout11 = nn.Dropout(0.2)
+        # self.dropout12 = nn.Dropout(0.2)
+        # self.bn10 = nn.BatchNorm1d(1024)
         # self.bn11 = nn.BatchNorm1d(256)
 
     def forward(self, x):
@@ -122,14 +126,19 @@ class DQN(nn.Module):
         h = self.dropout3(h)
         h = F.relu(self.bn4(self.conv4(h)))
         h = self.dropout4(h)
+        h = F.relu(self.bn5(self.conv5(h)))
+        h = self.dropout5(h)
+
         # print(h.size())
         # print(h.view(h.size(0), -1).size())
 
-        h = F.relu(self.affine1(h.view(h.size(0), -1)))
+        h = F.leaky_relu(self.affine1(h.view(h.size(0), -1)))
         h = self.dropout10(h)
-        h = F.relu(self.affine2(h))
+        h = F.leaky_relu(self.affine2(h))
         h = self.dropout11(h)
-        h = self.affine3(h)
+        h = F.leaky_relu(self.affine3(h))
+        # h = self.dropout12(h)
+        # h = self.affine4(h)
         return h
 
 
@@ -217,7 +226,7 @@ class Agent(object):
         self.target: DQN = copy.deepcopy(self.dqn)
 
         # Optimizer
-        self.optimizer = optim.Adam(self.dqn.parameters())
+        self.optimizer = optim.RMSprop(self.dqn.parameters(), lr=0.005)
 
         # Replay Memory
         self.replay = ReplayMemory()
@@ -357,8 +366,8 @@ class Agent(object):
         non_final_next_state_batch = non_final_next_state_batch.view(
             [-1, self.action_repeat, self.env.width, self.env.height])
 
-        # Clipping Reward between -1 and 1
-        reward_batch.data.clamp_(-1, 1)
+        # Clipping Reward between -2 and 2
+        # reward_batch.data.clamp_(-2, 2)
 
         # state_batch = state_batch.view([BATCH_SIZE, 3, self.action_repeat, self.env.width, self.env.height])
         # non_final_next_state_batch = non_final_next_state_batch.view(
