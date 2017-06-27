@@ -18,6 +18,7 @@ from torch import nn, optim
 from torch.autograd import Variable
 from torch.nn import functional as F
 from torchvision import transforms as T
+from gym.monitoring import video_recorder
 
 GAME_NAME = 'FlappyBird-v0'  # only Pygames are supported
 
@@ -86,33 +87,46 @@ class DQN(nn.Module):
         super(DQN, self).__init__()
         self.n_action = n_action
 
-        self.conv1 = nn.Conv2d(4, 16, kernel_size=5, stride=2, padding=1)  # (In Channel, Out Channel, ...)
+        self.conv1 = nn.Conv2d(4, 16, kernel_size=5, stride=1, padding=1)  # (In Channel, Out Channel, ...)
         self.conv2 = nn.Conv2d(16, 32, kernel_size=5, stride=2, padding=1)
         self.conv3 = nn.Conv2d(32, 64, kernel_size=5, stride=2, padding=1)
-        self.conv4 = nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1)
+        self.conv4 = nn.Conv2d(64, 64, kernel_size=4, stride=2, padding=1)
 
         self.bn1 = nn.BatchNorm2d(16)
         self.bn2 = nn.BatchNorm2d(32)
         self.bn3 = nn.BatchNorm2d(64)
-        self.bn4 = nn.BatchNorm2d(128)
+        self.bn4 = nn.BatchNorm2d(64)
 
-        self.affine1 = nn.Linear(2048, 1024)
-        self.affine2 = nn.Linear(1024, 256)
-        self.affine3 = nn.Linear(256, self.n_action)
+        self.dropout1 = nn.Dropout2d(0.5)
+        self.dropout2 = nn.Dropout2d(0.4)
+        self.dropout3 = nn.Dropout2d(0.4)
+        self.dropout4 = nn.Dropout2d(0.3)
 
-        # self.bn10 = nn.BatchNorm1d(1024)
+        self.affine1 = nn.Linear(5184, 2048)
+        self.affine2 = nn.Linear(2048, 512)
+        self.affine3 = nn.Linear(512, self.n_action)
+
+        self.dropout10 = nn.Dropout(0.3)
+        self.dropout11 = nn.Dropout(0.3)
+        # self.bn10 = nn.BatchNorm2d(2048)
         # self.bn11 = nn.BatchNorm1d(256)
 
     def forward(self, x):
         h = F.relu(self.bn1(self.conv1(x)))
+        h = self.dropout1(h)
         h = F.relu(self.bn2(self.conv2(h)))
+        h = self.dropout2(h)
         h = F.relu(self.bn3(self.conv3(h)))
+        h = self.dropout3(h)
         h = F.relu(self.bn4(self.conv4(h)))
+        h = self.dropout4(h)
         # print(h.size())
         # print(h.view(h.size(0), -1).size())
 
         h = F.relu(self.affine1(h.view(h.size(0), -1)))
+        h = self.dropout10(h)
         h = F.relu(self.affine2(h))
+        h = self.dropout11(h)
         h = self.affine3(h)
         return h
 
@@ -175,7 +189,7 @@ class Environment(object):
 
 
 class Agent(object):
-    def __init__(self, agrs: argparse.Namespace, cuda=True, action_repeat: int = 4, frame_skipping=4):
+    def __init__(self, agrs: argparse.Namespace, cuda=True, action_repeat: int = 4, frame_skipping=2):
         # Init
         self.clip: bool = agrs.clip
         self.action_repeat: int = action_repeat
