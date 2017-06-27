@@ -30,7 +30,7 @@ EPSILON_END = 0.05
 EPSILON_DECAY = 20000
 
 # ETC Options
-TARGET_UPDATE_INTERVAL = 500
+TARGET_UPDATE_INTERVAL = 50
 CHECKPOINT_INTERVAL = 5000
 
 parser = argparse.ArgumentParser(description='DQN Configuration')
@@ -98,18 +98,18 @@ class DQN(nn.Module):
         self.affine2 = nn.Linear(1024, 256)
         self.affine3 = nn.Linear(256, self.n_action)
 
-        self.bn10 = nn.BatchNorm1d(1024)
-        self.bn11 = nn.BatchNorm1d(256)
+        # self.bn10 = nn.BatchNorm1d(1024)
+        # self.bn11 = nn.BatchNorm1d(256)
 
     def forward(self, x):
-        h = F.leaky_relu(self.bn1(self.conv1(x)))
-        h = F.leaky_relu(self.bn2(self.conv2(h)))
-        h = F.leaky_relu(self.bn3(self.conv3(h)))
+        h = F.relu(self.bn1(self.conv1(x)))
+        h = F.relu(self.bn2(self.conv2(h)))
+        h = F.relu(self.bn3(self.conv3(h)))
         # print(h.size())
         # print(h.view(h.size(0), -1).size())
 
-        h = F.relu(self.bn10(self.affine1(h.view(h.size(0), -1))))
-        h = F.relu(self.bn11(self.affine2(h)))
+        h = F.relu(self.affine1(h.view(h.size(0), -1)))
+        h = F.relu(self.affine2(h))
         h = self.affine3(h)
         return h
 
@@ -310,8 +310,8 @@ class Agent(object):
             target_update_msg = '  [target updated]' if target_update_flag else ''
             save_msg = '  [checkpoint!]' if checkpoint_flag else ''
             print(f'[{self.step}] Loss:{mean_loss:<8.4} Play:{play_steps:<3}  '  # AvgPlay:{self.play_step:<4.3}  
-                  f'RewardSum:{reward_sum:<3} Q:[{q_mean[0]:<6.2}, {q_mean[1]:<6.2}] '
-                  f'T:[{target_mean[0]:<6.2}, {target_mean[1]:<6.2}] '
+                  f'RewardSum:{reward_sum:<3} Q:[{q_mean[0]:<6.4}, {q_mean[1]:<6.4}] '
+                  f'T:[{target_mean[0]:<6.4}, {target_mean[1]:<6.4}] '
                   f'Epsilon:{self.epsilon:<6.4}{target_update_msg}{save_msg}')
 
     def optimize(self, gamma: float):
@@ -347,7 +347,7 @@ class Agent(object):
         target_values[final_mask] = reward_batch[final_mask]
 
         # loss = F.smooth_l1_loss(q_values, target_values)
-        loss = torch.mean((target_values - q_values)**2)
+        loss = torch.mean((target_values - q_values) ** 2)
         self.optimizer.zero_grad()
         loss.backward()
 
@@ -415,6 +415,11 @@ class Agent(object):
             states = states.reshape(1, self.action_repeat, self.env.width, self.env.height)
             # self.imshow(states[0, -1], transpose=False)
             states_variable: Variable = Variable(torch.FloatTensor(states).cuda())
+
+            # for i, param in enumerate(list(self.dqn.parameters())):
+            #     r = torch.sum(param).data.cpu().numpy()
+                # print(i, r, r, param.data.cpu().numpy().shape)
+
             dqn_pred = self.dqn(states_variable)
             action = dqn_pred.data.cpu().max(1)[1][0, 0]
 
@@ -424,10 +429,12 @@ class Agent(object):
             next_state = self.env.get_screen()
             self.add_state(next_state)
             states = self.recent_states()
+            # self.imshow(states[0], transpose=False)
+            # self.imshow(states[3], transpose=False)
 
             # Logging
-            action = torch.sum(dqn_pred, 0).data.cpu().numpy()[0]
-            print(f'action:{action}, reward:{reward}')
+            action_dist = torch.sum(dqn_pred, 0).data.cpu().numpy()[0]
+            print(f'action:{action} {action_dist}, reward:{reward}')
 
             if done:
                 break
