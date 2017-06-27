@@ -22,12 +22,12 @@ from torchvision import transforms as T
 GAME_NAME = 'FlappyBird-v0'  # only Pygames are supported
 
 # Training
-BATCH_SIZE = 16
+BATCH_SIZE = 32
 
 # Epsilon
 EPSILON_START = 1.0
 EPSILON_END = 0.05
-EPSILON_DECAY = 20000
+EPSILON_DECAY = 100000
 
 # ETC Options
 TARGET_UPDATE_INTERVAL = 500
@@ -349,8 +349,8 @@ class Agent(object):
         target_values[non_final_mask] = reward_batch[non_final_mask] + target_pred.max(1)[0] * gamma
         target_values[final_mask] = reward_batch[final_mask]
 
-        # loss = F.smooth_l1_loss(q_values, target_values)
-        loss = torch.mean((target_values - q_values) ** 2)
+        loss = F.smooth_l1_loss(q_values, target_values)
+        # loss = torch.mean((target_values - q_values) ** 2)
         self.optimizer.zero_grad()
         loss.backward()
 
