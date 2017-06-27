@@ -86,15 +86,17 @@ class DQN(nn.Module):
         super(DQN, self).__init__()
         self.n_action = n_action
 
-        self.conv1 = nn.Conv2d(4, 16, kernel_size=5, stride=1, padding=2)  # (In Channel, Out Channel, ...)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=5, stride=1, padding=2)
-        self.conv3 = nn.Conv2d(32, 32, kernel_size=5, stride=1, padding=2)
+        self.conv1 = nn.Conv2d(4, 16, kernel_size=5, stride=2, padding=1)  # (In Channel, Out Channel, ...)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=5, stride=2, padding=1)
+        self.conv3 = nn.Conv2d(32, 64, kernel_size=5, stride=2, padding=1)
+        self.conv4 = nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1)
 
         self.bn1 = nn.BatchNorm2d(16)
         self.bn2 = nn.BatchNorm2d(32)
-        self.bn3 = nn.BatchNorm2d(32)
+        self.bn3 = nn.BatchNorm2d(64)
+        self.bn4 = nn.BatchNorm2d(128)
 
-        self.affine1 = nn.Linear(225792, 1024)
+        self.affine1 = nn.Linear(2048, 1024)
         self.affine2 = nn.Linear(1024, 256)
         self.affine3 = nn.Linear(256, self.n_action)
 
@@ -105,6 +107,7 @@ class DQN(nn.Module):
         h = F.relu(self.bn1(self.conv1(x)))
         h = F.relu(self.bn2(self.conv2(h)))
         h = F.relu(self.bn3(self.conv3(h)))
+        h = F.relu(self.bn4(self.conv4(h)))
         # print(h.size())
         # print(h.view(h.size(0), -1).size())
 
@@ -418,7 +421,7 @@ class Agent(object):
 
             # for i, param in enumerate(list(self.dqn.parameters())):
             #     r = torch.sum(param).data.cpu().numpy()
-                # print(i, r, r, param.data.cpu().numpy().shape)
+            # print(i, r, r, param.data.cpu().numpy().shape)
 
             dqn_pred = self.dqn(states_variable)
             action = dqn_pred.data.cpu().max(1)[1][0, 0]
