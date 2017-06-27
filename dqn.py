@@ -329,8 +329,6 @@ class Agent(object):
         non_final_next_state_batch = Variable(torch.cat([ns for ns in transitions.next_state if ns is not None]).cuda())
         non_final_next_state_batch.volatile = True
 
-        print(non_final_next_state_batch.size())
-
         state_batch = state_batch.view([BATCH_SIZE, self.action_repeat, self.env.width, self.env.height])
         non_final_next_state_batch = non_final_next_state_batch.view(
             [-1, self.action_repeat, self.env.width, self.env.height])
@@ -348,7 +346,8 @@ class Agent(object):
         target_values[non_final_mask] = reward_batch[non_final_mask] + target_pred.max(1)[0] * gamma
         target_values[final_mask] = reward_batch[final_mask]
 
-        loss = F.smooth_l1_loss(q_values, target_values)
+        # loss = F.smooth_l1_loss(q_values, target_values)
+        loss = torch.mean((target_values - q_values)**2)
         self.optimizer.zero_grad()
         loss.backward()
 
@@ -414,16 +413,21 @@ class Agent(object):
             screen = self.env.game.render(mode='human')
 
             states = states.reshape(1, self.action_repeat, self.env.width, self.env.height)
+            # self.imshow(states[0, -1], transpose=False)
             states_variable: Variable = Variable(torch.FloatTensor(states).cuda())
-            action = self.dqn(states_variable).data.cpu().max(1)[1][0, 0]
+            dqn_pred = self.dqn(states_variable)
+            action = dqn_pred.data.cpu().max(1)[1][0, 0]
 
             observation, reward, done, info = self.env.step(action)
 
-            print(f'action:{action}, reward:{reward}')
-
+            # States <- Next States
             next_state = self.env.get_screen()
             self.add_state(next_state)
             states = self.recent_states()
+
+            # Logging
+            action = torch.sum(dqn_pred, 0).data.cpu().numpy()[0]
+            print(f'action:{action}, reward:{reward}')
 
             if done:
                 break
