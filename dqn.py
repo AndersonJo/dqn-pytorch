@@ -14,11 +14,11 @@ import gym_ple
 import numpy as np
 import pylab
 import torch
+from gym.wrappers import Monitor
 from torch import nn, optim
 from torch.autograd import Variable
 from torch.nn import functional as F
 from torchvision import transforms as T
-from gym.monitoring import video_recorder
 
 GAME_NAME = 'FlappyBird-v0'  # only Pygames are supported
 
@@ -44,7 +44,8 @@ parser.add_argument('--game', default='FlappyBird-v0', type=str, help='only Pyga
 parser.add_argument('--clip', dest='clip', action='store_true', help='clipping the delta between -1 and 1')
 parser.add_argument('--noclip', dest='clip', action='store_false', help='not clipping the delta')
 parser.add_argument('--skip_action', default=2, type=int, help='Skipping actions')
-parser.set_defaults(clip=True, load_latest=True)
+parser.add_argument('--record', dest='record', action='store_true', help='Record playing a game')
+parser.set_defaults(clip=True, load_latest=True, record=False)
 
 
 class ReplayMemory(object):
@@ -88,23 +89,23 @@ class DQN(nn.Module):
         super(DQN, self).__init__()
         self.n_action = n_action
 
-        self.conv1 = nn.Conv2d(4, 16, kernel_size=5, stride=1, padding=1)  # (In Channel, Out Channel, ...)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=5, stride=2, padding=1)
-        self.conv3 = nn.Conv2d(32, 64, kernel_size=5, stride=2, padding=1)
-        self.conv4 = nn.Conv2d(64, 64, kernel_size=4, stride=2, padding=1)
+        self.conv1 = nn.Conv2d(4, 32, kernel_size=5, stride=2, padding=1)  # (In Channel, Out Channel, ...)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=5, stride=2, padding=1)
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=5, stride=2, padding=1)
+        self.conv4 = nn.Conv2d(128, 128, kernel_size=5, stride=2, padding=1)
 
-        self.bn1 = nn.BatchNorm2d(16)
-        self.bn2 = nn.BatchNorm2d(32)
-        self.bn3 = nn.BatchNorm2d(64)
-        self.bn4 = nn.BatchNorm2d(64)
+        self.bn1 = nn.BatchNorm2d(32)
+        self.bn2 = nn.BatchNorm2d(64)
+        self.bn3 = nn.BatchNorm2d(128)
+        self.bn4 = nn.BatchNorm2d(128)
 
         self.dropout1 = nn.Dropout2d(0.5)
         self.dropout2 = nn.Dropout2d(0.4)
         self.dropout3 = nn.Dropout2d(0.4)
         self.dropout4 = nn.Dropout2d(0.3)
 
-        self.affine1 = nn.Linear(5184, 2048)
-        self.affine2 = nn.Linear(2048, 512)
+        self.affine1 = nn.Linear(2048, 1024)
+        self.affine2 = nn.Linear(1024, 512)
         self.affine3 = nn.Linear(512, self.n_action)
 
         self.dropout10 = nn.Dropout(0.3)
@@ -133,8 +134,12 @@ class DQN(nn.Module):
 
 
 class Environment(object):
-    def __init__(self, game, width=84, height=84):
+    def __init__(self, game, record=False, width=84, height=84):
         self.game = gym.make(game)
+
+        if record:
+            self.game = Monitor(self.game, './video', force=True)
+
         self.width = width
         self.height = height
         self._toTensor = T.Compose([T.ToPILImage(), T.ToTensor()])
@@ -201,7 +206,7 @@ class Agent(object):
         self._play_steps = deque(maxlen=5)
 
         # Environment
-        self.env = Environment(args.game)
+        self.env = Environment(args.game, record=args.record)
 
         # DQN Model
         self.dqn: DQN = DQN(self.env.action_space)
@@ -212,7 +217,7 @@ class Agent(object):
         self.target: DQN = copy.deepcopy(self.dqn)
 
         # Optimizer
-        self.optimizer = optim.RMSprop(self.dqn.parameters(), lr=0.007)
+        self.optimizer = optim.Adam(self.dqn.parameters(), lr=0.001)
 
         # Replay Memory
         self.replay = ReplayMemory()
