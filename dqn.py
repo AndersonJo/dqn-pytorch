@@ -91,22 +91,22 @@ class DQN(nn.Module):
 
         self.conv1 = nn.Conv2d(4, 32, kernel_size=5, stride=2, padding=1)  # (In Channel, Out Channel, ...)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=5, stride=2, padding=1)
-        self.conv3 = nn.Conv2d(64, 128, kernel_size=5, stride=2, padding=1)
-        self.conv4 = nn.Conv2d(128, 128, kernel_size=5, stride=2, padding=1)
+        self.conv3 = nn.Conv2d(64, 64, kernel_size=5, stride=2, padding=1)
+        self.conv4 = nn.Conv2d(64, 64, kernel_size=5, stride=2, padding=1)
 
         self.bn1 = nn.BatchNorm2d(32)
         self.bn2 = nn.BatchNorm2d(64)
-        self.bn3 = nn.BatchNorm2d(128)
-        self.bn4 = nn.BatchNorm2d(128)
+        self.bn3 = nn.BatchNorm2d(64)
+        self.bn4 = nn.BatchNorm2d(64)
 
-        self.dropout1 = nn.Dropout2d(0.5)
+        self.dropout1 = nn.Dropout2d(0.4)
         self.dropout2 = nn.Dropout2d(0.4)
-        self.dropout3 = nn.Dropout2d(0.4)
+        self.dropout3 = nn.Dropout2d(0.3)
         self.dropout4 = nn.Dropout2d(0.3)
 
-        self.affine1 = nn.Linear(2048, 1024)
-        self.affine2 = nn.Linear(1024, 512)
-        self.affine3 = nn.Linear(512, self.n_action)
+        self.affine1 = nn.Linear(1024, 512)
+        self.affine2 = nn.Linear(512, 256)
+        self.affine3 = nn.Linear(256, self.n_action)
 
         self.dropout10 = nn.Dropout(0.3)
         self.dropout11 = nn.Dropout(0.3)
