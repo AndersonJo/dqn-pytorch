@@ -10,7 +10,7 @@ The implementation of Deep Q Learning with Pytorch.
 * Python 3.x (I used Python 3.6)
 
 ### DQN Algorithm
-Here you can see the explanation of DQN algorithm. <br>
+The linked article explains how DQN works in detail.<br>
 [http://andersonjo.github.io/artificial-intelligence/2017/06/03/Deep-Reinforcement-Learning/](http://andersonjo.github.io/artificial-intelligence/2017/06/03/Deep-Reinforcement-Learning/)
 
 ### Actual Playing game
@@ -26,7 +26,16 @@ The below image is actual result of the code here.
 
 # Installation
 
-of course, You need Pytorch but I am not going to tell how to install Pytorch here. 
+Requirements 
+
+1. Python 3
+2. Pytorch 
+3. TorchVision
+4. gym
+5. opencv2 
+6. Scipy
+7. ffmpeg (optional. if you want to record the gameplay)
+
 
 Install PyGame
 
