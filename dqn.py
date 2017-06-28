@@ -19,11 +19,15 @@ from torch import nn, optim
 from torch.autograd import Variable
 from torch.nn import functional as F
 from torchvision import transforms as T
+from scipy.misc import toimage
 
 GAME_NAME = 'FlappyBird-v0'  # only Pygames are supported
 
 # Training
 BATCH_SIZE = 32
+
+# Replay Memory
+REPLAY_MEMORY = 50000
 
 # Epsilon
 EPSILON_START = 1.0
@@ -31,10 +35,11 @@ EPSILON_END = 0.05
 EPSILON_DECAY = 40000
 
 # ETC Options
-TARGET_UPDATE_INTERVAL = 2500
+TARGET_UPDATE_INTERVAL = 500
 CHECKPOINT_INTERVAL = 5000
 
 parser = argparse.ArgumentParser(description='DQN Configuration')
+parser.add_argument('--model', default='dqn', type=str, help='forcefully set step')
 parser.add_argument('--step', default=None, type=int, help='forcefully set step')
 parser.add_argument('--load_latest', dest='load_latest', action='store_true', help='load latest checkpoint')
 parser.add_argument('--no_load_latest', dest='load_latest', action='store_false', help='train from the scrach')
@@ -43,13 +48,14 @@ parser.add_argument('--mode', dest='mode', default='play', type=str, help='[play
 parser.add_argument('--game', default='FlappyBird-v0', type=str, help='only Pygames are supported')
 parser.add_argument('--clip', dest='clip', action='store_true', help='clipping the delta between -1 and 1')
 parser.add_argument('--noclip', dest='clip', action='store_false', help='not clipping the delta')
-parser.add_argument('--skip_action', default=2, type=int, help='Skipping actions')
+parser.add_argument('--skip_action', default=4, type=int, help='Skipping actions')
 parser.add_argument('--record', dest='record', action='store_true', help='Record playing a game')
-parser.set_defaults(clip=True, load_latest=True, record=False)
+parser.add_argument('--inspect', dest='inspect', action='store_true', help='Inspect CNN')
+parser.set_defaults(clip=True, load_latest=True, record=False, inspect=False)
 
 
 class ReplayMemory(object):
-    def __init__(self, capacity=20000):
+    def __init__(self, capacity=REPLAY_MEMORY):
         self.capacity = capacity
         self.memory = deque(maxlen=self.capacity)
         self.Transition = namedtuple('Transition', ('state', 'action', 'reward', 'next_state'))
@@ -89,56 +95,23 @@ class DQN(nn.Module):
         super(DQN, self).__init__()
         self.n_action = n_action
 
-        self.conv1 = nn.Conv2d(4, 32, kernel_size=8, stride=2, padding=1)  # (In Channel, Out Channel, ...)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=6, stride=2, padding=1)
-        self.conv3 = nn.Conv2d(64, 64, kernel_size=5, stride=2, padding=1)
-        self.conv4 = nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1)
-        self.conv5 = nn.Conv2d(128, 128, kernel_size=4, stride=1, padding=1)
+        self.conv1 = nn.Conv2d(4, 32, kernel_size=8, stride=4, padding=0)  # (In Channel, Out Channel, ...)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2, padding=0)
+        self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=0)
 
-        self.bn1 = nn.BatchNorm2d(32)
-        self.bn2 = nn.BatchNorm2d(64)
-        self.bn3 = nn.BatchNorm2d(64)
-        self.bn4 = nn.BatchNorm2d(128)
-        self.bn5 = nn.BatchNorm2d(128)
-
-        self.dropout1 = nn.Dropout2d(0.4)
-        self.dropout2 = nn.Dropout2d(0.4)
-        self.dropout3 = nn.Dropout2d(0.3)
-        self.dropout4 = nn.Dropout2d(0.3)
-        self.dropout5 = nn.Dropout2d(0.3)
-
-        self.affine1 = nn.Linear(1152, 512)
-        self.affine2 = nn.Linear(512, 256)
-        self.affine3 = nn.Linear(256, self.n_action)
-
-        self.dropout10 = nn.Dropout(0.3)
-        self.dropout11 = nn.Dropout(0.2)
-        # self.dropout12 = nn.Dropout(0.2)
-        # self.bn10 = nn.BatchNorm1d(1024)
-        # self.bn11 = nn.BatchNorm1d(256)
+        self.affine1 = nn.Linear(3136, 512)
+        self.affine2 = nn.Linear(512, self.n_action)
 
     def forward(self, x):
-        h = F.relu(self.bn1(self.conv1(x)))
-        h = self.dropout1(h)
-        h = F.relu(self.bn2(self.conv2(h)))
-        h = self.dropout2(h)
-        h = F.relu(self.bn3(self.conv3(h)))
-        h = self.dropout3(h)
-        h = F.relu(self.bn4(self.conv4(h)))
-        h = self.dropout4(h)
-        h = F.relu(self.bn5(self.conv5(h)))
-        h = self.dropout5(h)
+        h = F.relu(self.conv1(x))
+        h = F.relu(self.conv2(h))
+        h = F.relu(self.conv3(h))
 
         # print(h.size())
         # print(h.view(h.size(0), -1).size())
 
-        h = F.leaky_relu(self.affine1(h.view(h.size(0), -1)))
-        h = self.dropout10(h)
-        h = F.leaky_relu(self.affine2(h))
-        h = self.dropout11(h)
-        h = F.leaky_relu(self.affine3(h))
-        # h = self.dropout12(h)
-        # h = self.affine4(h)
+        h = F.relu(self.affine1(h.view(h.size(0), -1)))
+        h = self.affine2(h)
         return h
 
 
@@ -218,7 +191,9 @@ class Agent(object):
         self.env = Environment(args.game, record=args.record)
 
         # DQN Model
-        self.dqn: DQN = DQN(self.env.action_space)
+        if args.model == 'dqn':
+            self.dqn: DQN = DQN(self.env.action_space)
+
         if cuda:
             self.dqn.cuda()
 
@@ -226,7 +201,7 @@ class Agent(object):
         self.target: DQN = copy.deepcopy(self.dqn)
 
         # Optimizer
-        self.optimizer = optim.RMSprop(self.dqn.parameters(), lr=0.005)
+        self.optimizer = optim.Adam(self.dqn.parameters(), lr=0.0001)
 
         # Replay Memory
         self.replay = ReplayMemory()
@@ -365,18 +340,16 @@ class Agent(object):
         state_batch = state_batch.view([BATCH_SIZE, self.action_repeat, self.env.width, self.env.height])
         non_final_next_state_batch = non_final_next_state_batch.view(
             [-1, self.action_repeat, self.env.width, self.env.height])
-
-        # Clipping Reward between -2 and 2
-        # reward_batch.data.clamp_(-2, 2)
-
-        # state_batch = state_batch.view([BATCH_SIZE, 3, self.action_repeat, self.env.width, self.env.height])
-        # non_final_next_state_batch = non_final_next_state_batch.view(
-        #     [-1, 3, self.action_repeat, self.env.width, self.env.height])
         non_final_next_state_batch.volatile = True
 
+        # Clipping Reward between -2 and 2
+        reward_batch.data.clamp_(-1, 1)
+
+        # Predict by DQN Model
         q_pred = self.dqn(state_batch)
         q_values = q_pred.gather(1, action_batch)
 
+        # Predict by Target Model
         target_values = Variable(torch.zeros(BATCH_SIZE, 1).cuda())
         target_pred = self.target(non_final_next_state_batch)
         target_values[non_final_mask] = reward_batch[non_final_mask] + target_pred.max(1)[0] * gamma
@@ -392,18 +365,10 @@ class Agent(object):
                 param.grad.data.clamp_(-1, 1)
         self.optimizer.step()
 
-        # print('dqn:', self._sum_params(self.dqn))
-        # print('target:', self._sum_params(self.target))
-
-        # actions = np.zeros((BATCH_SIZE, self.env.action_space))
-        # actions[np.arange(BATCH_SIZE), action_batch.data.cpu().numpy().reshape(-1)] = 1
-        # actions = np.sum(actions, axis=0).astype('int').tolist()
-
         reward_score = int(torch.sum(reward_batch).data.cpu().numpy()[0])
         q_mean = torch.sum(q_pred, 0).data.cpu().numpy()[0]
         target_mean = torch.sum(target_pred, 0).data.cpu().numpy()[0]
-        # q_mean = torch.mean(q_values).data.cpu().numpy()[0]
-        # target_mean = torch.mean(target_values).data.cpu().numpy()[0]
+
         return loss.data.cpu().numpy(), reward_score, q_mean, target_mean
 
     def _target_update(self):
@@ -450,12 +415,7 @@ class Agent(object):
             # screen = self.env.game.render(mode='human')
 
             states = states.reshape(1, self.action_repeat, self.env.width, self.env.height)
-            # self.imshow(states[0, -1], transpose=False)
             states_variable: Variable = Variable(torch.FloatTensor(states).cuda())
-
-            # for i, param in enumerate(list(self.dqn.parameters())):
-            #     r = torch.sum(param).data.cpu().numpy()
-            # print(i, r, r, param.data.cpu().numpy().shape)
 
             dqn_pred = self.dqn(states_variable)
             action = dqn_pred.data.cpu().max(1)[1][0, 0]
@@ -463,13 +423,10 @@ class Agent(object):
             for _ in range(self.frame_skipping):
                 screen = self.env.game.render(mode='human')
                 observation, reward, done, info = self.env.step(action)
-
                 # States <- Next States
                 next_state = self.env.get_screen()
                 self.add_state(next_state)
                 states = self.recent_states()
-                # self.imshow(states[0], transpose=False)
-                # self.imshow(states[3], transpose=False)
 
             # Logging
             count += 1
@@ -480,6 +437,17 @@ class Agent(object):
                 break
         self.env.game.close()
 
+    def inspect(self):
+        print(dir(self.dqn.conv1))
+
+        for param in list(self.dqn.parameters()):
+            print(param.size())
+
+        print(self.dqn.conv2.kernel_size)
+        print(self.dqn.conv3.kernel_size)
+        print(self.dqn.conv4.kernel_size)
+        print(self.dqn.conv5.kernel_size)
+
     @property
     def play_step(self):
         return np.mean(self._play_steps)
@@ -487,11 +455,14 @@ class Agent(object):
     def _sum_params(self, model):
         return np.sum([torch.sum(p).data[0] for p in model.parameters()])
 
-    def imshow(self, sample_image: np.array, transpose=True):
+    def imshow(self, sample_image: np.array, transpose=False):
         if transpose:
             sample_image = sample_image.transpose((1, 2, 0))
         pylab.imshow(sample_image, cmap='gray')
         pylab.show()
+
+    def toimage(self, image: np.array, name: str):
+        toimage(image, cmin=0, cmax=255).save(name)
 
 
 def main():
@@ -501,13 +472,14 @@ def main():
     if args.load_latest and not args.checkpoint:
         agent.load_latest_checkpoint()
     elif args.checkpoint:
-        raise Exception
         agent.load_checkpoint(args.checkpoint)
 
     if args.mode.lower() == 'play':
         agent.play()
     elif args.mode.lower() == 'train':
         agent.train()
+    elif args.mode.lower() == 'inspect':
+        agent.inspect()
 
 
 if __name__ == '__main__':
