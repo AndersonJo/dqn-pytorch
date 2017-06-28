@@ -80,3 +80,28 @@ ffmpeg -i video.mp4 -qscale:v 2  -r 25 'frames/frame-%03d.jpg'
 cd frames
 convert -delay 4 -loop 0 *.jpg myimage.gif
 ```
+
+FFMpeg and Imagemagic(Convert command) have the following options. 
+
+```
+-r 5 stands for FPS value
+    for better quality choose bigger number
+    adjust the value with the -delay in 2nd step
+    to keep the same animation speed
+
+-delay 20 means the time between each frame is 0.2 seconds
+   which match 5 fps above.
+   When choosing this value
+       1 = 100 fps
+       2 = 50 fps
+       4 = 25 fps
+       5 = 20 fps
+       10 = 10 fps
+       20 = 5 fps
+       25 = 4 fps
+       50 = 2 fps
+       100 = 1 fps
+       in general 100/delay = fps
+
+-loop 0 means repeat forever
+```
