@@ -103,7 +103,9 @@ FFMpeg and Imagemagic(Convert command) have the following options.
        100 = 1 fps
        in general 100/delay = fps
 
--qscale:v n means a video quality level where n is a number from 1-31, with 1 being highest quality/largest filesize and 31 being the lowest quality/smallest filesize.
+-qscale:v n means a video quality level where n is a number from 1-31, 
+   with 1 being highest quality/largest filesize and 
+   31 being the lowest quality/smallest filesize.
 
 -loop 0 means repeat forever
 ```
