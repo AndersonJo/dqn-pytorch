@@ -18,6 +18,8 @@ The below image is actual result of the code here.
 
 ![alt text](./images/flappybird.gif?raw=true)
 
+[![Watch the video](http://img.youtube.com/vi/MkE6bnK7_DE/0.jpg)](https://youtu.be/MkE6bnK7_DE)
+
 
 ### Youtube 
 
