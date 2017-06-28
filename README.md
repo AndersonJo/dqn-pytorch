@@ -76,9 +76,9 @@ python3 dqn.py --mode=play --record
 
 ```
 mkdir frames
-ffmpeg -i video.mp4 -qscale:v 2  -r 25 'frames/frame-%03d.jpg'
+ffmpeg -i flappybird.mp4 -qscale:v 2  -r 25 'frames/frame-%03d.jpg'
 cd frames
-convert -delay 4 -loop 0 *.jpg myimage.gif
+convert -delay 4 -loop 0 *.jpg flappybird.gif
 ```
 
 FFMpeg and Imagemagic(Convert command) have the following options. 
