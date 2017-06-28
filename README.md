@@ -9,12 +9,19 @@ The implementation of Deep Q Learning with Pytorch.
 * Target Network (for stability when training)
 * Python 3.x (I used Python 3.6)
 
+### DQN Algorithm
 Here you can see the explanation of DQN algorithm. <br>
 [http://andersonjo.github.io/artificial-intelligence/2017/06/03/Deep-Reinforcement-Learning/](http://andersonjo.github.io/artificial-intelligence/2017/06/03/Deep-Reinforcement-Learning/)
 
+### Actual Playing game
 The below image is actual result of the code here. 
 
 ![alt text](./images/flappybird.gif?raw=true)
+
+
+### Youtube 
+
+[Here Youtube Video](https://youtu.be/MkE6bnK7_DE)
 
 
 # Installation
