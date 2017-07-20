@@ -121,10 +121,10 @@ class LSTMDQN(nn.Module):
         super(LSTMDQN, self).__init__()
         self.n_action = n_action
 
-        self.conv1 = nn.Conv2d(4, 32, kernel_size=8, stride=1, padding=1)  # (In Channel, Out Channel, ...)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=5, stride=1, padding=1)
-        self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
-        self.conv4 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
+        # self.conv1 = nn.Conv2d(4, 32, kernel_size=8, stride=1, padding=1)  # (In Channel, Out Channel, ...)
+        # self.conv2 = nn.Conv2d(32, 64, kernel_size=5, stride=1, padding=1)
+        # self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
+        # self.conv4 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
 
         self.lstm = nn.LSTMCell(1024, 512)
 
@@ -132,13 +132,16 @@ class LSTMDQN(nn.Module):
         self.affine2 = nn.Linear(512, self.n_action)
 
     def forward(self, x, hidden_state, cell_state):
-        h = F.relu(F.max_pool2d(self.conv1(x), kernel_size=2, stride=2))
-        print(h.size())
-        h = F.relu(F.max_pool2d(self.conv2(h), kernel_size=2, stride=2))
-        print(h.size())
-        h = F.relu(F.max_pool2d(self.conv3(h), kernel_size=2, stride=2))
-        print(h.size())
-        h = F.relu(F.max_pool2d(self.conv4(h), kernel_size=2, stride=2))
+        print('forward!!!!!!!!!!!!!!!!!!!')
+        print('x:', x.size())
+        h = self.lstm(x, (hidden_state, cell_state))
+        # h = F.relu(F.max_pool2d(self.conv1(x), kernel_size=2, stride=2))
+        # print(h.size())
+        # h = F.relu(F.max_pool2d(self.conv2(h), kernel_size=2, stride=2))
+        # print(h.size())
+        # h = F.relu(F.max_pool2d(self.conv3(h), kernel_size=2, stride=2))
+        # print(h.size())
+        # h = F.relu(F.max_pool2d(self.conv4(h), kernel_size=2, stride=2))
 
         # print(h.size())
         print(h.view(h.size(0), -1).size())
@@ -341,7 +344,7 @@ class Agent(object):
 
                 # Optimize
                 if self.replay.is_available():
-                    loss, reward_sum, q_mean, target_mean = self.optimize(gamma)
+                    loss, reward_sum, q_mean, target_mean = self.optimize(gamma, hidden_state, cell_state)
                     losses.append(loss[0])
 
                 if done:
@@ -372,7 +375,7 @@ class Agent(object):
                   f'T:[{target_mean[0]:<6.4}, {target_mean[1]:<6.4}] '
                   f'Epsilon:{self.epsilon:<6.4}{target_update_msg}{save_msg}')
 
-    def optimize(self, gamma: float):
+    def optimize(self, gamma: float, hidden_state: Variable, cell_state: Variable):
 
         # Get Sample
         transitions = self.replay.sample(BATCH_SIZE)
@@ -397,7 +400,11 @@ class Agent(object):
         reward_batch.data.clamp_(-1, 1)
 
         # Predict by DQN Model
-        q_pred = self.dqn(state_batch)
+        if self.mode == 'dqn':
+            q_pred = self.dqn(state_batch)
+        elif self.mode == 'lstm':
+            q_pred = self.dqn(state_batch, hidden_state, cell_state)
+
         q_values = q_pred.gather(1, action_batch)
 
         # Predict by Target Model
