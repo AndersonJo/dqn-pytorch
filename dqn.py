@@ -22,6 +22,7 @@ from torchvision import transforms as T
 from scipy.misc import toimage
 
 GAME_NAME = 'FlappyBird-v0'  # only Pygames are supported
+# GAME_NAME = 'MonsterKon-v0'  # only Pygames are supported
 
 # Training
 BATCH_SIZE = 32
@@ -115,6 +116,45 @@ class DQN(nn.Module):
         return h
 
 
+class LSTMDQN(nn.Module):
+    def __init__(self, n_action):
+        super(LSTMDQN, self).__init__()
+        self.n_action = n_action
+
+        self.conv1 = nn.Conv2d(4, 32, kernel_size=8, stride=1, padding=1)  # (In Channel, Out Channel, ...)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=5, stride=1, padding=1)
+        self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
+        self.conv4 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
+
+        self.lstm = nn.LSTMCell(1024, 512)
+
+        self.affine1 = nn.Linear(3136, 512)
+        self.affine2 = nn.Linear(512, self.n_action)
+
+    def forward(self, x, hidden_state, cell_state):
+        h = F.relu(F.max_pool2d(self.conv1(x), kernel_size=2, stride=2))
+        print(h.size())
+        h = F.relu(F.max_pool2d(self.conv2(h), kernel_size=2, stride=2))
+        print(h.size())
+        h = F.relu(F.max_pool2d(self.conv3(h), kernel_size=2, stride=2))
+        print(h.size())
+        h = F.relu(F.max_pool2d(self.conv4(h), kernel_size=2, stride=2))
+
+        # print(h.size())
+        print(h.view(h.size(0), -1).size())
+        h = h.view(h.size(0), -1)
+        h = self.lstm(h, (hidden_state, cell_state))
+
+        h = F.relu(self.affine1(h))
+        h = self.affine2(h)
+        return h
+
+    def init_states(self) -> [Variable, Variable]:
+        hidden_state = Variable(torch.zeros(1, 512))
+        cell_state = Variable(torch.zeros(1, 512))
+        return hidden_state, cell_state
+
+
 class Environment(object):
     def __init__(self, game, record=False, width=84, height=84):
         self.game = gym.make(game)
@@ -191,8 +231,11 @@ class Agent(object):
         self.env = Environment(args.game, record=args.record)
 
         # DQN Model
-        if args.model == 'dqn':
+        self.mode: str = args.model.lower()
+        if self.mode == 'dqn':
             self.dqn: DQN = DQN(self.env.action_space)
+        elif self.mode == 'lstm':
+            self.dqn: LSTMDQN = LSTMDQN(self.env.action_space)
 
         if cuda:
             self.dqn.cuda()
@@ -209,7 +252,7 @@ class Agent(object):
         # Epsilon
         self.epsilon = EPSILON_START
 
-    def select_action(self, states: np.array) -> torch.LongTensor:
+    def select_action(self, states: np.array, hidden_state=None, cell_state=None) -> tuple:
         """
         :param states: 게임화면
         :return: LongTensor (int64) 값이며, [[index]] 이런 형태를 갖고 있다.
@@ -221,7 +264,8 @@ class Agent(object):
 
         if self.epsilon > random():
             # Random Action
-            action = torch.LongTensor([[self.env.game.action_space.sample()]])
+            sample_action = self.env.game.action_space.sample()
+            action = torch.LongTensor([[sample_action]])
             return action
 
         # max(dimension) 이 들어가며 tuple을 return값으로 내놓는다.
@@ -230,8 +274,12 @@ class Agent(object):
         # LongTensor에는 가장 큰 값의 index가 있다.
         states = states.reshape(1, self.action_repeat, self.env.width, self.env.height)
         states_variable: Variable = Variable(torch.FloatTensor(states).cuda(), volatile=True)
-        action = self.dqn(states_variable).data.cpu().max(1)[1]
-        return action
+        if self.mode == 'dqn':
+            action = self.dqn(states_variable).data.cpu().max(1)[1]
+        elif self.mode == 'lstm':
+            action, hidden_state, cell_state = self.dqn(states_variable, hidden_state, cell_state).data.cpu().max(1)[1]
+
+        return action, hidden_state, cell_state
 
     def get_initial_states(self):
         state = self.env.reset()
@@ -256,6 +304,10 @@ class Agent(object):
         q_mean = [0., 0.]
         target_mean = [0., 0.]
 
+        hidden_state = cell_state = None
+        if self.mode == 'lstm':
+            hidden_state, cell_state = self.dqn.init_states()
+
         while True:
             states = self.get_initial_states()
             losses = []
@@ -267,8 +319,7 @@ class Agent(object):
             done = False
             while True:
                 # Get Action
-                action: torch.LongTensor = self.select_action(states)
-
+                action: torch.LongTensor = self.select_action(states, hidden_state, cell_state)
                 for _ in range(self.frame_skipping):
                     # step 에서 나온 observation은 버림
                     observation, reward, done, info = self.env.step(action[0, 0])
@@ -450,7 +501,7 @@ class Agent(object):
 
     @property
     def play_step(self):
-        return np.mean(self._play_steps)
+        return np.nan_to_num(np.mean(self._play_steps))
 
     def _sum_params(self, model):
         return np.sum([torch.sum(p).data[0] for p in model.parameters()])
