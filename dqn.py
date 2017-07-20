@@ -1,9 +1,11 @@
 import argparse
 import copy
 import glob
+import logging
 import math
 import os
 import re
+import sys
 from collections import deque
 from collections import namedtuple
 from random import random, sample
@@ -15,13 +17,15 @@ import numpy as np
 import pylab
 import torch
 from gym.wrappers import Monitor
+from scipy.misc import toimage
 from torch import nn, optim
 from torch.autograd import Variable
 from torch.nn import functional as F
 from torchvision import transforms as T
-from scipy.misc import toimage
 
-GAME_NAME = 'FlappyBird-v0'  # only Pygames are supported
+# Support Games
+# 'FlappyBird-v0'
+# 'MonsterKon-v0'
 
 # Training
 BATCH_SIZE = 32
@@ -31,16 +35,23 @@ REPLAY_MEMORY = 50000
 
 # Epsilon
 EPSILON_START = 1.0
-EPSILON_END = 0.05
-EPSILON_DECAY = 40000
+EPSILON_END = 0.01
+EPSILON_DECAY = 100000
+
+# LSTM Memory
+LSTM_MEMORY = 128
 
 # ETC Options
-TARGET_UPDATE_INTERVAL = 500
+TARGET_UPDATE_INTERVAL = 1000
 CHECKPOINT_INTERVAL = 5000
+PLAY_INTERVAL = 100
+PLAY_REPEAT = 10
+LEARNING_RATE = 0.0001
 
 parser = argparse.ArgumentParser(description='DQN Configuration')
 parser.add_argument('--model', default='dqn', type=str, help='forcefully set step')
 parser.add_argument('--step', default=None, type=int, help='forcefully set step')
+parser.add_argument('--best', default=None, type=int, help='forcefully set best')
 parser.add_argument('--load_latest', dest='load_latest', action='store_true', help='load latest checkpoint')
 parser.add_argument('--no_load_latest', dest='load_latest', action='store_false', help='train from the scrach')
 parser.add_argument('--checkpoint', default=None, type=str, help='specify the checkpoint file name')
@@ -51,7 +62,23 @@ parser.add_argument('--noclip', dest='clip', action='store_false', help='not cli
 parser.add_argument('--skip_action', default=4, type=int, help='Skipping actions')
 parser.add_argument('--record', dest='record', action='store_true', help='Record playing a game')
 parser.add_argument('--inspect', dest='inspect', action='store_true', help='Inspect CNN')
+parser.add_argument('--seed', default=111, type=int, help='random seed')
 parser.set_defaults(clip=True, load_latest=True, record=False, inspect=False)
+parser: argparse.Namespace = parser.parse_args()
+
+# Random Seed
+torch.manual_seed(parser.seed)
+torch.cuda.manual_seed(parser.seed)
+np.random.seed(parser.seed)
+
+# Logging
+logger = logging.getLogger('DQN')
+logger.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(message)s')
+
+file_handler = logging.FileHandler(f'dqn_{parser.model}.log')
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
 
 
 class ReplayMemory(object):
@@ -113,6 +140,51 @@ class DQN(nn.Module):
         h = F.relu(self.affine1(h.view(h.size(0), -1)))
         h = self.affine2(h)
         return h
+
+
+class LSTMDQN(nn.Module):
+    def __init__(self, n_action):
+        super(LSTMDQN, self).__init__()
+        self.n_action = n_action
+
+        self.conv1 = nn.Conv2d(4, 32, kernel_size=8, stride=1, padding=1)  # (In Channel, Out Channel, ...)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=5, stride=1, padding=1)
+        self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
+        self.conv4 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
+
+        self.lstm = nn.LSTM(16, LSTM_MEMORY, 1)  # (Input, Hidden, Num Layers)
+
+        self.affine1 = nn.Linear(LSTM_MEMORY * 64, 512)
+        # self.affine2 = nn.Linear(2048, 512)
+        self.affine2 = nn.Linear(512, self.n_action)
+
+    def forward(self, x, hidden_state, cell_state):
+        # CNN
+        h = F.relu(F.max_pool2d(self.conv1(x), kernel_size=2, stride=2))
+        h = F.relu(F.max_pool2d(self.conv2(h), kernel_size=2, stride=2))
+        h = F.relu(F.max_pool2d(self.conv3(h), kernel_size=2, stride=2))
+        h = F.relu(F.max_pool2d(self.conv4(h), kernel_size=2, stride=2))
+
+        # LSTM
+        h = h.view(h.size(0), h.size(1), 16)  # (32, 64, 4, 4) -> (32, 64, 16)
+        h, (next_hidden_state, next_cell_state) = self.lstm(h, (hidden_state, cell_state))
+        h = h.view(h.size(0), -1)  # (32, 64, 256) -> (32, 16348)
+
+        # Fully Connected Layers
+        h = F.relu(self.affine1(h.view(h.size(0), -1)))
+        # h = F.relu(self.affine2(h.view(h.size(0), -1)))
+        h = self.affine2(h)
+        return h, next_hidden_state, next_cell_state
+
+    def init_states(self) -> [Variable, Variable]:
+        hidden_state = Variable(torch.zeros(1, 64, LSTM_MEMORY).cuda())
+        cell_state = Variable(torch.zeros(1, 64, LSTM_MEMORY).cuda())
+        return hidden_state, cell_state
+
+    def reset_states(self, hidden_state, cell_state):
+        hidden_state[:, :, :] = 0
+        cell_state[:, :, :] = 0
+        return hidden_state.detach(), cell_state.detach()
 
 
 class Environment(object):
@@ -184,6 +256,8 @@ class Agent(object):
         self.frame_skipping: int = args.skip_action
         self._state_buffer = deque(maxlen=self.action_repeat)
         self.step = 0
+        self.best_score = args.best or -10
+        self.best_count = 0
 
         self._play_steps = deque(maxlen=5)
 
@@ -191,8 +265,24 @@ class Agent(object):
         self.env = Environment(args.game, record=args.record)
 
         # DQN Model
-        if args.model == 'dqn':
+        self.dqn_hidden_state = self.dqn_cell_state = None
+        self.target_hidden_state = self.target_cell_state = None
+
+        self.mode: str = args.model.lower()
+        if self.mode == 'dqn':
             self.dqn: DQN = DQN(self.env.action_space)
+        elif self.mode == 'lstm':
+            self.dqn: LSTMDQN = LSTMDQN(self.env.action_space)
+
+            # For Optimization
+            self.dqn_hidden_state, self.dqn_cell_state = self.dqn.init_states()
+            self.target_hidden_state, self.target_cell_state = self.dqn.init_states()
+
+            # For Training Play
+            self.train_hidden_state, self.train_cell_state = self.dqn.init_states()
+
+            # For Validation Play
+            self.test_hidden_state, self.test_cell_state = self.dqn.init_states()
 
         if cuda:
             self.dqn.cuda()
@@ -201,7 +291,7 @@ class Agent(object):
         self.target: DQN = copy.deepcopy(self.dqn)
 
         # Optimizer
-        self.optimizer = optim.Adam(self.dqn.parameters(), lr=0.0001)
+        self.optimizer = optim.Adam(self.dqn.parameters(), lr=LEARNING_RATE)
 
         # Replay Memory
         self.replay = ReplayMemory()
@@ -209,7 +299,7 @@ class Agent(object):
         # Epsilon
         self.epsilon = EPSILON_START
 
-    def select_action(self, states: np.array) -> torch.LongTensor:
+    def select_action(self, states: np.array) -> tuple:
         """
         :param states: 게임화면
         :return: LongTensor (int64) 값이며, [[index]] 이런 형태를 갖고 있다.
@@ -221,7 +311,8 @@ class Agent(object):
 
         if self.epsilon > random():
             # Random Action
-            action = torch.LongTensor([[self.env.game.action_space.sample()]])
+            sample_action = self.env.game.action_space.sample()
+            action = torch.LongTensor([[sample_action]])
             return action
 
         # max(dimension) 이 들어가며 tuple을 return값으로 내놓는다.
@@ -229,8 +320,16 @@ class Agent(object):
         # FloatTensor는 가장 큰 값
         # LongTensor에는 가장 큰 값의 index가 있다.
         states = states.reshape(1, self.action_repeat, self.env.width, self.env.height)
-        states_variable: Variable = Variable(torch.FloatTensor(states).cuda(), volatile=True)
-        action = self.dqn(states_variable).data.cpu().max(1)[1]
+        states_variable: Variable = Variable(torch.FloatTensor(states).cuda())
+
+        if self.mode == 'dqn':
+            states_variable.volatile = True
+            action = self.dqn(states_variable).data.cpu().max(1)[1]
+        elif self.mode == 'lstm':
+            action, self.dqn_hidden_state, self.dqn_cell_state = \
+                self.dqn(states_variable, self.train_hidden_state, self.train_cell_state)
+            action = action.data.cpu().max(1)[1]
+
         return action
 
     def get_initial_states(self):
@@ -257,11 +356,20 @@ class Agent(object):
         target_mean = [0., 0.]
 
         while True:
+            # Init LSTM States
+            if self.mode == 'lstm':
+                # For Training
+                self.train_hidden_state, self.train_cell_state = self.dqn.reset_states(self.train_hidden_state,
+                                                                                       self.train_cell_state)
+
             states = self.get_initial_states()
             losses = []
             checkpoint_flag = False
             target_update_flag = False
+            play_flag = False
             play_steps = 0
+            real_play_count = 0
+            real_score = 0
 
             reward = 0
             done = False
@@ -306,22 +414,54 @@ class Agent(object):
                     target_update_flag = True
 
                 # Checkpoint
-                if self.step % CHECKPOINT_INTERVAL == 0:
-                    self.save_checkpoint(filename=f'dqn_checkpoints/checkpoint_{self.step}.pth.tar')
-                    checkpoint_flag = True
+                # if self.step % CHECKPOINT_INTERVAL == 0:
+                #     self.save_checkpoint(filename=f'dqn_checkpoints/chkpoint_{self.mode}_{self.step}.pth.tar')
+                #     checkpoint_flag = True
+
+                # Play
+                if self.step % PLAY_INTERVAL == 0:
+                    play_flag = True
+
+                    scores = []
+                    counts = []
+                    for _ in range(PLAY_REPEAT):
+                        score, real_play_count = self.play(logging=False, human=False)
+                        scores.append(score)
+                        counts.append(real_play_count)
+                        logger.debug(f'[{self.step}] [Validation] play_score: {score}, play_count: {real_play_count}')
+                    real_score = int(np.mean(scores))
+                    real_play_count = int(np.mean(counts))
+
+                    if self.best_score <= real_score:
+                        self.best_score = real_score
+                        self.best_count = real_play_count
+                        logger.debug(f'[{self.step}] [CheckPoint] Play: {self.best_score} [Best Play] [checkpoint]')
+                        self.save_checkpoint(
+                            filename=f'dqn_checkpoints/chkpoint_{self.mode}_{self.best_score}.pth.tar')
 
             self._play_steps.append(play_steps)
+
+            # Play
+            if play_flag:
+                play_flag = False
+                logger.info(f'[{self.step}] [Validation] mean_score: {real_score}, mean_play_count: {real_play_count}')
 
             # Logging
             mean_loss = np.mean(losses)
             target_update_msg = '  [target updated]' if target_update_flag else ''
-            save_msg = '  [checkpoint!]' if checkpoint_flag else ''
-            print(f'[{self.step}] Loss:{mean_loss:<8.4} Play:{play_steps:<3}  '  # AvgPlay:{self.play_step:<4.3}  
-                  f'RewardSum:{reward_sum:<3} Q:[{q_mean[0]:<6.4}, {q_mean[1]:<6.4}] '
-                  f'T:[{target_mean[0]:<6.4}, {target_mean[1]:<6.4}] '
-                  f'Epsilon:{self.epsilon:<6.4}{target_update_msg}{save_msg}')
+            # save_msg = '  [checkpoint!]' if checkpoint_flag else ''
+            logger.info(f'[{self.step}] Loss:{mean_loss:<8.4} Play:{play_steps:<3}  '  # AvgPlay:{self.play_step:<4.3}
+                        f'RewardSum:{reward_sum:<3} Q:[{q_mean[0]:<6.4}, {q_mean[1]:<6.4}] '
+                        f'T:[{target_mean[0]:<6.4}, {target_mean[1]:<6.4}] '
+                        f'Epsilon:{self.epsilon:<6.4}{target_update_msg}')
 
     def optimize(self, gamma: float):
+        if self.mode == 'lstm':
+            # For Optimization
+            self.dqn_hidden_state, self.dqn_cell_state = self.dqn.reset_states(self.dqn_hidden_state,
+                                                                               self.dqn_cell_state)
+            self.target_hidden_state, self.target_cell_state = self.dqn.reset_states(self.target_hidden_state,
+                                                                                     self.target_cell_state)
 
         # Get Sample
         transitions = self.replay.sample(BATCH_SIZE)
@@ -346,19 +486,30 @@ class Agent(object):
         reward_batch.data.clamp_(-1, 1)
 
         # Predict by DQN Model
-        q_pred = self.dqn(state_batch)
+        if self.mode == 'dqn':
+            q_pred = self.dqn(state_batch)
+        elif self.mode == 'lstm':
+            q_pred, self.dqn_hidden_state, self.dqn_cell_state = self.dqn(state_batch, self.dqn_hidden_state,
+                                                                          self.dqn_cell_state)
+
         q_values = q_pred.gather(1, action_batch)
 
         # Predict by Target Model
         target_values = Variable(torch.zeros(BATCH_SIZE, 1).cuda())
-        target_pred = self.target(non_final_next_state_batch)
+        if self.mode == 'dqn':
+            target_pred = self.target(non_final_next_state_batch)
+        elif self.mode == 'lstm':
+            target_pred, self.target_hidden_state, self.target_cell_state = self.target(non_final_next_state_batch,
+                                                                                        self.target_hidden_state,
+                                                                                        self.target_cell_state)
+
         target_values[non_final_mask] = reward_batch[non_final_mask] + target_pred.max(1)[0] * gamma
-        target_values[final_mask] = reward_batch[final_mask]
+        target_values[final_mask] = reward_batch[final_mask].detach()
 
         loss = F.smooth_l1_loss(q_values, target_values)
         # loss = torch.mean((target_values - q_values) ** 2)
         self.optimizer.zero_grad()
-        loss.backward()
+        loss.backward(retain_variables=True)
 
         if self.clip:
             for param in self.dqn.parameters():
@@ -384,7 +535,9 @@ class Agent(object):
             'dqn': self.dqn.state_dict(),
             'target': self.target.state_dict(),
             'optimizer': self.optimizer.state_dict(),
-            'step': self.step
+            'step': self.step,
+            'best': self.best_score,
+            'best_count': self.best_count
         }
         torch.save(checkpoint, filename)
 
@@ -394,10 +547,14 @@ class Agent(object):
         self.target.load_state_dict(checkpoint['target'])
         self.optimizer.load_state_dict(checkpoint['optimizer'])
         self.step = checkpoint['step']
+        self.best_score = self.best_score or checkpoint['best']
+        self.best_count = checkpoint['best_count']
 
     def load_latest_checkpoint(self, epsilon=None):
-        r = re.compile('checkpoint_(?P<number>\d+)\.pth\.tar$')
-        files = glob.glob('dqn_checkpoints/checkpoint_*.pth.tar')
+        r = re.compile('chkpoint_(dqn|lstm)_(?P<number>-?\d+)\.pth\.tar$')
+
+        files = glob.glob(f'dqn_checkpoints/chkpoint_{self.mode}_*.pth.tar')
+
         if files:
             files = list(map(lambda x: [int(r.search(x).group('number')), x], files))
             files = sorted(files, key=lambda x: x[0])
@@ -407,35 +564,54 @@ class Agent(object):
         else:
             print('no latest checkpoint')
 
-    def play(self):
+    def play(self, logging=True, human=True):
         observation = self.env.game.reset()
         states = self.get_initial_states()
         count = 0
+        total_score = 0
+
+        if self.mode == 'lstm':
+            self.test_hidden_state, self.test_cell_state = self.dqn.reset_states(self.test_hidden_state,
+                                                                                 self.test_cell_state)
+
         while True:
             # screen = self.env.game.render(mode='human')
 
             states = states.reshape(1, self.action_repeat, self.env.width, self.env.height)
             states_variable: Variable = Variable(torch.FloatTensor(states).cuda())
 
-            dqn_pred = self.dqn(states_variable)
+            if self.mode == 'dqn':
+                dqn_pred = self.dqn(states_variable)
+            elif self.mode == 'lstm':
+                dqn_pred, self.dqn_hidden_state, self.dqn_cell_state = \
+                    self.dqn(states_variable, self.test_hidden_state, self.test_cell_state)
+
             action = dqn_pred.data.cpu().max(1)[1][0, 0]
 
             for _ in range(self.frame_skipping):
-                screen = self.env.game.render(mode='human')
+                if human:
+                    screen = self.env.game.render(mode='human')
                 observation, reward, done, info = self.env.step(action)
                 # States <- Next States
                 next_state = self.env.get_screen()
                 self.add_state(next_state)
                 states = self.recent_states()
 
+                total_score += reward
+
+                if done:
+                    break
+
             # Logging
             count += 1
-            action_dist = torch.sum(dqn_pred, 0).data.cpu().numpy()[0]
-            print(f'[{count}] action:{action} {action_dist}, reward:{reward}')
+            if logging:
+                action_dist = torch.sum(dqn_pred, 0).data.cpu().numpy()[0]
+                print(f'[{count}] action:{action} {action_dist}, reward:{reward}')
 
             if done:
                 break
         self.env.game.close()
+        return total_score, count
 
     def inspect(self):
         print(dir(self.dqn.conv1))
@@ -450,7 +626,7 @@ class Agent(object):
 
     @property
     def play_step(self):
-        return np.mean(self._play_steps)
+        return np.nan_to_num(np.mean(self._play_steps))
 
     def _sum_params(self, model):
         return np.sum([torch.sum(p).data[0] for p in model.parameters()])
@@ -465,22 +641,20 @@ class Agent(object):
         toimage(image, cmin=0, cmax=255).save(name)
 
 
-def main():
-    args: argparse.Namespace = parser.parse_args()
-
-    agent = Agent(args)
-    if args.load_latest and not args.checkpoint:
+def main(parser):
+    agent = Agent(parser)
+    if parser.load_latest and not parser.checkpoint:
         agent.load_latest_checkpoint()
-    elif args.checkpoint:
-        agent.load_checkpoint(args.checkpoint)
+    elif parser.checkpoint:
+        agent.load_checkpoint(parser.checkpoint)
 
-    if args.mode.lower() == 'play':
+    if parser.mode.lower() == 'play':
         agent.play()
-    elif args.mode.lower() == 'train':
+    elif parser.mode.lower() == 'train':
         agent.train()
-    elif args.mode.lower() == 'inspect':
+    elif parser.mode.lower() == 'inspect':
         agent.inspect()
 
 
 if __name__ == '__main__':
-    main()
+    main(parser)
