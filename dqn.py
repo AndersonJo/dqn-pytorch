@@ -40,7 +40,8 @@ EPSILON_DECAY = 40000
 # ETC Options
 TARGET_UPDATE_INTERVAL = 500
 CHECKPOINT_INTERVAL = 5000
-PLAY_INTERVAL = 200
+PLAY_INTERVAL = 100
+LSTM_MEMORY = 128
 
 parser = argparse.ArgumentParser(description='DQN Configuration')
 parser.add_argument('--model', default='dqn', type=str, help='forcefully set step')
@@ -129,8 +130,6 @@ class DQN(nn.Module):
 
 
 class LSTMDQN(nn.Module):
-    LSTM_MEMORY = 256
-
     def __init__(self, n_action):
         super(LSTMDQN, self).__init__()
         self.n_action = n_action
@@ -140,9 +139,9 @@ class LSTMDQN(nn.Module):
         self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
         self.conv4 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
 
-        self.lstm = nn.LSTM(16, LSTMDQN.LSTM_MEMORY, 2)  # (Input, Hidden, Num Layers)
+        self.lstm = nn.LSTM(16, LSTM_MEMORY, 2)  # (Input, Hidden, Num Layers)
 
-        self.affine1 = nn.Linear(LSTMDQN.LSTM_MEMORY * 64, 2048)
+        self.affine1 = nn.Linear(LSTM_MEMORY * 64, 2048)
         self.affine2 = nn.Linear(2048, 512)
         self.affine3 = nn.Linear(512, self.n_action)
 
@@ -165,8 +164,8 @@ class LSTMDQN(nn.Module):
         return h, next_hidden_state, next_cell_state
 
     def init_states(self) -> [Variable, Variable]:
-        hidden_state = Variable(torch.zeros(2, 64, LSTMDQN.LSTM_MEMORY).cuda())
-        cell_state = Variable(torch.zeros(2, 64, LSTMDQN.LSTM_MEMORY).cuda())
+        hidden_state = Variable(torch.zeros(2, 64, LSTM_MEMORY).cuda())
+        cell_state = Variable(torch.zeros(2, 64, LSTM_MEMORY).cuda())
 
         return hidden_state, cell_state
 
@@ -240,6 +239,7 @@ class Agent(object):
         self.frame_skipping: int = args.skip_action
         self._state_buffer = deque(maxlen=self.action_repeat)
         self.step = 0
+        self.best_play_count = 0
 
         self._play_steps = deque(maxlen=5)
 
@@ -386,9 +386,9 @@ class Agent(object):
                     target_update_flag = True
 
                 # Checkpoint
-                if self.step % CHECKPOINT_INTERVAL == 0:
-                    self.save_checkpoint(filename=f'dqn_checkpoints/chkpoint_{self.mode}_{self.step}.pth.tar')
-                    checkpoint_flag = True
+                # if self.step % CHECKPOINT_INTERVAL == 0:
+                #     self.save_checkpoint(filename=f'dqn_checkpoints/chkpoint_{self.mode}_{self.step}.pth.tar')
+                #     checkpoint_flag = True
 
                 # Play
                 if self.step % PLAY_INTERVAL == 0:
@@ -399,17 +399,23 @@ class Agent(object):
             # Play
             if play_flag:
                 real_play_count = self.play(logging=False, human=False)
+                if self.best_play_count < real_play_count:
+                    self.best_play_count = real_play_count
+                    logger.debug(f'[{self.step}] Play: {self.best_play_count} [Best Play] [checkpoint]')
+                    self.save_checkpoint(
+                        filename=f'dqn_checkpoints/chkpoint_{self.mode}_{self.best_play_count}.pth.tar')
+
                 play_flag = False
-                logger.debug(f'[{self.step}] Model only play: {real_play_count}')
+                logger.debug(f'[{self.step}] Model play: {self.best_play_count}')
 
             # Logging
             mean_loss = np.mean(losses)
             target_update_msg = '  [target updated]' if target_update_flag else ''
-            save_msg = '  [checkpoint!]' if checkpoint_flag else ''
+            # save_msg = '  [checkpoint!]' if checkpoint_flag else ''
             logger.debug(f'[{self.step}] Loss:{mean_loss:<8.4} Play:{play_steps:<3}  '  # AvgPlay:{self.play_step:<4.3}
                          f'RewardSum:{reward_sum:<3} Q:[{q_mean[0]:<6.4}, {q_mean[1]:<6.4}] '
                          f'T:[{target_mean[0]:<6.4}, {target_mean[1]:<6.4}] '
-                         f'Epsilon:{self.epsilon:<6.4}{target_update_msg}{save_msg}')
+                         f'Epsilon:{self.epsilon:<6.4}{target_update_msg}')
 
     def optimize(self, gamma: float):
 
@@ -485,7 +491,8 @@ class Agent(object):
             'dqn': self.dqn.state_dict(),
             'target': self.target.state_dict(),
             'optimizer': self.optimizer.state_dict(),
-            'step': self.step
+            'step': self.step,
+            'best': self.best_play_count
         }
         torch.save(checkpoint, filename)
 
@@ -495,9 +502,11 @@ class Agent(object):
         self.target.load_state_dict(checkpoint['target'])
         self.optimizer.load_state_dict(checkpoint['optimizer'])
         self.step = checkpoint['step']
+        self.best_play_count = checkpoint['best']
 
     def load_latest_checkpoint(self, epsilon=None):
         r = re.compile('chkpoint_(dqn|lstm)_(?P<number>\d+)\.pth\.tar$')
+
         files = glob.glob(f'dqn_checkpoints/chkpoint_{self.mode}_*.pth.tar')
 
         if files:
