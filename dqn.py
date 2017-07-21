@@ -66,12 +66,6 @@ file_handler = logging.FileHandler('dqn.log')
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 
-# stream_hanlder = logging.StreamHandler(sys.stdout)
-# stream_hanlder.setFormatter(formatter)
-# logger.addHandler(stream_hanlder)
-
-
-
 
 class ReplayMemory(object):
     def __init__(self, capacity=REPLAY_MEMORY):
@@ -135,6 +129,8 @@ class DQN(nn.Module):
 
 
 class LSTMDQN(nn.Module):
+    LSTM_MEMORY = 256
+
     def __init__(self, n_action):
         super(LSTMDQN, self).__init__()
         self.n_action = n_action
@@ -144,10 +140,11 @@ class LSTMDQN(nn.Module):
         self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
         self.conv4 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
 
-        self.lstm = nn.LSTM(16, 128, 2)  # (Input, Hidden, Num Layers)
+        self.lstm = nn.LSTM(16, LSTMDQN.LSTM_MEMORY, 2)  # (Input, Hidden, Num Layers)
 
-        self.affine1 = nn.Linear(8192, 512)
-        self.affine2 = nn.Linear(512, self.n_action)
+        self.affine1 = nn.Linear(LSTMDQN.LSTM_MEMORY * 64, 2048)
+        self.affine2 = nn.Linear(2048, 512)
+        self.affine3 = nn.Linear(512, self.n_action)
 
     def forward(self, x, hidden_state, cell_state):
         # CNN
@@ -159,16 +156,17 @@ class LSTMDQN(nn.Module):
         # LSTM
         h = h.view(h.size(0), h.size(1), 16)  # (32, 64, 4, 4) -> (32, 64, 16)
         h, (next_hidden_state, next_cell_state) = self.lstm(h, (hidden_state, cell_state))
-        h = h.view(h.size(0), -1)  # (32, 64, 128) -> (32, 8192)
+        h = h.view(h.size(0), -1)  # (32, 64, 256) -> (32, 16348)
 
         # Fully Connected Layers
         h = F.relu(self.affine1(h.view(h.size(0), -1)))
-        h = self.affine2(h)
+        h = F.relu(self.affine2(h.view(h.size(0), -1)))
+        h = self.affine3(h)
         return h, next_hidden_state, next_cell_state
 
     def init_states(self) -> [Variable, Variable]:
-        hidden_state = Variable(torch.zeros(2, 64, 128).cuda())
-        cell_state = Variable(torch.zeros(2, 64, 128).cuda())
+        hidden_state = Variable(torch.zeros(2, 64, LSTMDQN.LSTM_MEMORY).cuda())
+        cell_state = Variable(torch.zeros(2, 64, LSTMDQN.LSTM_MEMORY).cuda())
 
         return hidden_state, cell_state
 
