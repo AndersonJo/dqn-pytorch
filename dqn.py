@@ -121,40 +121,36 @@ class LSTMDQN(nn.Module):
         super(LSTMDQN, self).__init__()
         self.n_action = n_action
 
-        # self.conv1 = nn.Conv2d(4, 32, kernel_size=8, stride=1, padding=1)  # (In Channel, Out Channel, ...)
-        # self.conv2 = nn.Conv2d(32, 64, kernel_size=5, stride=1, padding=1)
-        # self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
-        # self.conv4 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
+        self.conv1 = nn.Conv2d(4, 32, kernel_size=8, stride=1, padding=1)  # (In Channel, Out Channel, ...)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=5, stride=1, padding=1)
+        self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
+        self.conv4 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
 
-        self.lstm = nn.LSTMCell(1024, 512)
+        self.lstm = nn.LSTM(16, 52, 2)  # (Input, Hidden, Num Layers)
 
-        self.affine1 = nn.Linear(3136, 512)
+        self.affine1 = nn.Linear(3328, 512)
         self.affine2 = nn.Linear(512, self.n_action)
 
     def forward(self, x, hidden_state, cell_state):
-        print('forward!!!!!!!!!!!!!!!!!!!')
-        print('x:', x.size())
-        h = self.lstm(x, (hidden_state, cell_state))
-        # h = F.relu(F.max_pool2d(self.conv1(x), kernel_size=2, stride=2))
-        # print(h.size())
-        # h = F.relu(F.max_pool2d(self.conv2(h), kernel_size=2, stride=2))
-        # print(h.size())
-        # h = F.relu(F.max_pool2d(self.conv3(h), kernel_size=2, stride=2))
-        # print(h.size())
-        # h = F.relu(F.max_pool2d(self.conv4(h), kernel_size=2, stride=2))
+        # CNN
+        h = F.relu(F.max_pool2d(self.conv1(x), kernel_size=2, stride=2))
+        h = F.relu(F.max_pool2d(self.conv2(h), kernel_size=2, stride=2))
+        h = F.relu(F.max_pool2d(self.conv3(h), kernel_size=2, stride=2))
+        h = F.relu(F.max_pool2d(self.conv4(h), kernel_size=2, stride=2))
 
-        # print(h.size())
-        print(h.view(h.size(0), -1).size())
-        h = h.view(h.size(0), -1)
-        h = self.lstm(h, (hidden_state, cell_state))
+        # LSTM
+        h = h.view(h.size(0), h.size(1), 16)  # (32, 64, 4, 4) -> (32, 64, 16)
+        h, (next_hidden_state, next_cell_state) = self.lstm(h, (hidden_state, cell_state))
+        h = h.view(h.size(0), -1)  # (32, 64, 52) -> (32, 3328)
 
-        h = F.relu(self.affine1(h))
+        # Fully Connected Layers
+        h = F.relu(self.affine1(h.view(h.size(0), -1)))
         h = self.affine2(h)
-        return h
+        return h, next_hidden_state, next_cell_state
 
     def init_states(self) -> [Variable, Variable]:
-        hidden_state = Variable(torch.zeros(1, 512))
-        cell_state = Variable(torch.zeros(1, 512))
+        hidden_state = Variable(torch.zeros(2, 64, 52).cuda())
+        cell_state = Variable(torch.zeros(2, 64, 52).cuda())
         return hidden_state, cell_state
 
 
@@ -234,11 +230,14 @@ class Agent(object):
         self.env = Environment(args.game, record=args.record)
 
         # DQN Model
+        self.hidden_state = self.cell_state = None
+
         self.mode: str = args.model.lower()
         if self.mode == 'dqn':
             self.dqn: DQN = DQN(self.env.action_space)
         elif self.mode == 'lstm':
             self.dqn: LSTMDQN = LSTMDQN(self.env.action_space)
+            self.hidden_state, self.cell_state = self.dqn.init_states()
 
         if cuda:
             self.dqn.cuda()
@@ -280,9 +279,10 @@ class Agent(object):
         if self.mode == 'dqn':
             action = self.dqn(states_variable).data.cpu().max(1)[1]
         elif self.mode == 'lstm':
-            action, hidden_state, cell_state = self.dqn(states_variable, hidden_state, cell_state).data.cpu().max(1)[1]
+            action, self.hidden_state, self.cell_state = \
+                self.dqn(states_variable, hidden_state, cell_state).data.cpu().max(1)[1]
 
-        return action, hidden_state, cell_state
+        return action
 
     def get_initial_states(self):
         state = self.env.reset()
@@ -307,10 +307,6 @@ class Agent(object):
         q_mean = [0., 0.]
         target_mean = [0., 0.]
 
-        hidden_state = cell_state = None
-        if self.mode == 'lstm':
-            hidden_state, cell_state = self.dqn.init_states()
-
         while True:
             states = self.get_initial_states()
             losses = []
@@ -321,8 +317,12 @@ class Agent(object):
             reward = 0
             done = False
             while True:
+                # Init LSTM States
+                if self.mode == 'lstm':
+                    self.hidden_state, self.cell_state = self.dqn.init_states()
+
                 # Get Action
-                action: torch.LongTensor = self.select_action(states, hidden_state, cell_state)
+                action: torch.LongTensor = self.select_action(states)
                 for _ in range(self.frame_skipping):
                     # step 에서 나온 observation은 버림
                     observation, reward, done, info = self.env.step(action[0, 0])
@@ -344,7 +344,7 @@ class Agent(object):
 
                 # Optimize
                 if self.replay.is_available():
-                    loss, reward_sum, q_mean, target_mean = self.optimize(gamma, hidden_state, cell_state)
+                    loss, reward_sum, q_mean, target_mean = self.optimize(gamma)
                     losses.append(loss[0])
 
                 if done:
@@ -370,12 +370,12 @@ class Agent(object):
             mean_loss = np.mean(losses)
             target_update_msg = '  [target updated]' if target_update_flag else ''
             save_msg = '  [checkpoint!]' if checkpoint_flag else ''
-            print(f'[{self.step}] Loss:{mean_loss:<8.4} Play:{play_steps:<3}  '  # AvgPlay:{self.play_step:<4.3}  
+            print(f'[{self.step}] Loss:{mean_loss:<8.4} Play:{play_steps:<3}  '  # AvgPlay:{self.play_step:<4.3}
                   f'RewardSum:{reward_sum:<3} Q:[{q_mean[0]:<6.4}, {q_mean[1]:<6.4}] '
                   f'T:[{target_mean[0]:<6.4}, {target_mean[1]:<6.4}] '
                   f'Epsilon:{self.epsilon:<6.4}{target_update_msg}{save_msg}')
 
-    def optimize(self, gamma: float, hidden_state: Variable, cell_state: Variable):
+    def optimize(self, gamma: float):
 
         # Get Sample
         transitions = self.replay.sample(BATCH_SIZE)
@@ -403,13 +403,18 @@ class Agent(object):
         if self.mode == 'dqn':
             q_pred = self.dqn(state_batch)
         elif self.mode == 'lstm':
-            q_pred = self.dqn(state_batch, hidden_state, cell_state)
+            q_pred, self.hidden_state, self.cell_state = self.dqn(state_batch, self.hidden_state, self.cell_state)
 
         q_values = q_pred.gather(1, action_batch)
 
         # Predict by Target Model
         target_values = Variable(torch.zeros(BATCH_SIZE, 1).cuda())
-        target_pred = self.target(non_final_next_state_batch)
+        if self.mode == 'dqn':
+            target_pred = self.target(non_final_next_state_batch)
+        elif self.mode == 'lstm':
+            target_pred, self.hidden_state, self.cell_state = self.target(non_final_next_state_batch,
+                                                                          self.hidden_state, self.cell_state)
+
         target_values[non_final_mask] = reward_batch[non_final_mask] + target_pred.max(1)[0] * gamma
         target_values[final_mask] = reward_batch[final_mask]
 
