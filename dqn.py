@@ -126,9 +126,9 @@ class LSTMDQN(nn.Module):
         self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
         self.conv4 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
 
-        self.lstm = nn.LSTM(16, 52, 2)  # (Input, Hidden, Num Layers)
+        self.lstm = nn.LSTM(16, 128, 2)  # (Input, Hidden, Num Layers)
 
-        self.affine1 = nn.Linear(3328, 512)
+        self.affine1 = nn.Linear(8192, 512)
         self.affine2 = nn.Linear(512, self.n_action)
 
     def forward(self, x, hidden_state, cell_state):
@@ -141,7 +141,7 @@ class LSTMDQN(nn.Module):
         # LSTM
         h = h.view(h.size(0), h.size(1), 16)  # (32, 64, 4, 4) -> (32, 64, 16)
         h, (next_hidden_state, next_cell_state) = self.lstm(h, (hidden_state, cell_state))
-        h = h.view(h.size(0), -1)  # (32, 64, 52) -> (32, 3328)
+        h = h.view(h.size(0), -1)  # (32, 64, 128) -> (32, 8192)
 
         # Fully Connected Layers
         h = F.relu(self.affine1(h.view(h.size(0), -1)))
@@ -149,8 +149,8 @@ class LSTMDQN(nn.Module):
         return h, next_hidden_state, next_cell_state
 
     def init_states(self) -> [Variable, Variable]:
-        hidden_state = Variable(torch.zeros(2, 64, 52).cuda())
-        cell_state = Variable(torch.zeros(2, 64, 52).cuda())
+        hidden_state = Variable(torch.zeros(2, 64, 128).cuda())
+        cell_state = Variable(torch.zeros(2, 64, 128).cuda())
 
         return hidden_state, cell_state
 
@@ -484,13 +484,24 @@ class Agent(object):
         observation = self.env.game.reset()
         states = self.get_initial_states()
         count = 0
+
+        if self.mode == 'lstm':
+            self.dqn_hidden_state, self.dqn_cell_state = self.dqn.init_states()
+            self.target_hidden_state, self.target_cell_state = self.target.init_states()
+
         while True:
             # screen = self.env.game.render(mode='human')
 
             states = states.reshape(1, self.action_repeat, self.env.width, self.env.height)
             states_variable: Variable = Variable(torch.FloatTensor(states).cuda())
 
-            dqn_pred = self.dqn(states_variable)
+            if self.mode == 'dqn':
+                dqn_pred = self.dqn(states_variable)
+            elif self.mode == 'lstm':
+                dqn_pred, self.dqn_hidden_state, self.dqn_cell_state = \
+                    self.dqn(states_variable, self.dqn_hidden_state, self.dqn_cell_state)
+
+
             action = dqn_pred.data.cpu().max(1)[1][0, 0]
 
             for _ in range(self.frame_skipping):
