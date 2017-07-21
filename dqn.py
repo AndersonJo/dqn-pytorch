@@ -1,9 +1,11 @@
 import argparse
 import copy
 import glob
+import logging
 import math
 import os
 import re
+import sys
 from collections import deque
 from collections import namedtuple
 from random import random, sample
@@ -15,11 +17,11 @@ import numpy as np
 import pylab
 import torch
 from gym.wrappers import Monitor
+from scipy.misc import toimage
 from torch import nn, optim
 from torch.autograd import Variable
 from torch.nn import functional as F
 from torchvision import transforms as T
-from scipy.misc import toimage
 
 GAME_NAME = 'FlappyBird-v0'  # only Pygames are supported
 # GAME_NAME = 'MonsterKon-v0'  # only Pygames are supported
@@ -38,6 +40,7 @@ EPSILON_DECAY = 40000
 # ETC Options
 TARGET_UPDATE_INTERVAL = 500
 CHECKPOINT_INTERVAL = 5000
+PLAY_INTERVAL = 200
 
 parser = argparse.ArgumentParser(description='DQN Configuration')
 parser.add_argument('--model', default='dqn', type=str, help='forcefully set step')
@@ -53,6 +56,21 @@ parser.add_argument('--skip_action', default=4, type=int, help='Skipping actions
 parser.add_argument('--record', dest='record', action='store_true', help='Record playing a game')
 parser.add_argument('--inspect', dest='inspect', action='store_true', help='Inspect CNN')
 parser.set_defaults(clip=True, load_latest=True, record=False, inspect=False)
+
+# Logging
+logger = logging.getLogger('DQN')
+logger.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(message)s')
+
+file_handler = logging.FileHandler('dqn.log')
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
+
+# stream_hanlder = logging.StreamHandler(sys.stdout)
+# stream_hanlder.setFormatter(formatter)
+# logger.addHandler(stream_hanlder)
+
+
 
 
 class ReplayMemory(object):
@@ -323,7 +341,9 @@ class Agent(object):
             losses = []
             checkpoint_flag = False
             target_update_flag = False
+            play_flag = False
             play_steps = 0
+            real_play_count = 0
 
             reward = 0
             done = False
@@ -369,19 +389,29 @@ class Agent(object):
 
                 # Checkpoint
                 if self.step % CHECKPOINT_INTERVAL == 0:
-                    self.save_checkpoint(filename=f'dqn_checkpoints/checkpoint_{self.step}.pth.tar')
+                    self.save_checkpoint(filename=f'dqn_checkpoints/chkpoint_{self.mode}_{self.step}.pth.tar')
                     checkpoint_flag = True
 
+                # Play
+                if self.step % PLAY_INTERVAL == 0:
+                    play_flag = True
+
             self._play_steps.append(play_steps)
+
+            # Play
+            if play_flag:
+                real_play_count = self.play(logging=False, human=False)
+                play_flag = False
+                logger.debug(f'[{self.step}] Model only play: {real_play_count}')
 
             # Logging
             mean_loss = np.mean(losses)
             target_update_msg = '  [target updated]' if target_update_flag else ''
             save_msg = '  [checkpoint!]' if checkpoint_flag else ''
-            print(f'[{self.step}] Loss:{mean_loss:<8.4} Play:{play_steps:<3}  '  # AvgPlay:{self.play_step:<4.3}
-                  f'RewardSum:{reward_sum:<3} Q:[{q_mean[0]:<6.4}, {q_mean[1]:<6.4}] '
-                  f'T:[{target_mean[0]:<6.4}, {target_mean[1]:<6.4}] '
-                  f'Epsilon:{self.epsilon:<6.4}{target_update_msg}{save_msg}')
+            logger.debug(f'[{self.step}] Loss:{mean_loss:<8.4} Play:{play_steps:<3}  '  # AvgPlay:{self.play_step:<4.3}
+                         f'RewardSum:{reward_sum:<3} Q:[{q_mean[0]:<6.4}, {q_mean[1]:<6.4}] '
+                         f'T:[{target_mean[0]:<6.4}, {target_mean[1]:<6.4}] '
+                         f'Epsilon:{self.epsilon:<6.4}{target_update_msg}{save_msg}')
 
     def optimize(self, gamma: float):
 
@@ -469,9 +499,12 @@ class Agent(object):
         self.step = checkpoint['step']
 
     def load_latest_checkpoint(self, epsilon=None):
-        r = re.compile('checkpoint_(?P<number>\d+)\.pth\.tar$')
-        files = glob.glob('dqn_checkpoints/checkpoint_*.pth.tar')
+        r = re.compile('chkpoint_(dqn|lstm)_(?P<number>\d+)\.pth\.tar$')
+        files = glob.glob(f'dqn_checkpoints/chkpoint_{self.mode}_*.pth.tar')
+
         if files:
+            print(files[0])
+            print(r.search(files[0]))
             files = list(map(lambda x: [int(r.search(x).group('number')), x], files))
             files = sorted(files, key=lambda x: x[0])
             latest_file = files[-1][1]
@@ -480,7 +513,7 @@ class Agent(object):
         else:
             print('no latest checkpoint')
 
-    def play(self):
+    def play(self, logging=True, human=True):
         observation = self.env.game.reset()
         states = self.get_initial_states()
         count = 0
@@ -501,11 +534,11 @@ class Agent(object):
                 dqn_pred, self.dqn_hidden_state, self.dqn_cell_state = \
                     self.dqn(states_variable, self.dqn_hidden_state, self.dqn_cell_state)
 
-
             action = dqn_pred.data.cpu().max(1)[1][0, 0]
 
             for _ in range(self.frame_skipping):
-                screen = self.env.game.render(mode='human')
+                if human:
+                    screen = self.env.game.render(mode='human')
                 observation, reward, done, info = self.env.step(action)
                 # States <- Next States
                 next_state = self.env.get_screen()
@@ -514,12 +547,14 @@ class Agent(object):
 
             # Logging
             count += 1
-            action_dist = torch.sum(dqn_pred, 0).data.cpu().numpy()[0]
-            print(f'[{count}] action:{action} {action_dist}, reward:{reward}')
+            if logging:
+                action_dist = torch.sum(dqn_pred, 0).data.cpu().numpy()[0]
+                print(f'[{count}] action:{action} {action_dist}, reward:{reward}')
 
             if done:
                 break
         self.env.game.close()
+        return count
 
     def inspect(self):
         print(dir(self.dqn.conv1))
