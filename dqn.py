@@ -151,6 +151,7 @@ class LSTMDQN(nn.Module):
     def init_states(self) -> [Variable, Variable]:
         hidden_state = Variable(torch.zeros(2, 64, 52).cuda())
         cell_state = Variable(torch.zeros(2, 64, 52).cuda())
+
         return hidden_state, cell_state
 
 
@@ -230,14 +231,16 @@ class Agent(object):
         self.env = Environment(args.game, record=args.record)
 
         # DQN Model
-        self.hidden_state = self.cell_state = None
+        self.dqn_hidden_state = self.dqn_cell_state = None
+        self.target_hidden_state = self.target_cell_state = None
 
         self.mode: str = args.model.lower()
         if self.mode == 'dqn':
             self.dqn: DQN = DQN(self.env.action_space)
         elif self.mode == 'lstm':
             self.dqn: LSTMDQN = LSTMDQN(self.env.action_space)
-            self.hidden_state, self.cell_state = self.dqn.init_states()
+            self.dqn_hidden_state, self.dqn_cell_state = self.dqn.init_states()
+            self.target_hidden_state, self.target_cell_state = self.dqn.init_states()
 
         if cuda:
             self.dqn.cuda()
@@ -275,12 +278,14 @@ class Agent(object):
         # FloatTensor는 가장 큰 값
         # LongTensor에는 가장 큰 값의 index가 있다.
         states = states.reshape(1, self.action_repeat, self.env.width, self.env.height)
-        states_variable: Variable = Variable(torch.FloatTensor(states).cuda(), volatile=True)
+        states_variable: Variable = Variable(torch.FloatTensor(states).cuda())
+
         if self.mode == 'dqn':
+            states_variable.volatile = True
             action = self.dqn(states_variable).data.cpu().max(1)[1]
         elif self.mode == 'lstm':
-            action, self.hidden_state, self.cell_state = \
-                self.dqn(states_variable, self.hidden_state, self.cell_state)
+            action, self.dqn_hidden_state, self.dqn_cell_state = \
+                self.dqn(states_variable, self.dqn_hidden_state, self.dqn_cell_state)
             action = action.data.cpu().max(1)[1]
 
         return action
@@ -309,6 +314,11 @@ class Agent(object):
         target_mean = [0., 0.]
 
         while True:
+            # Init LSTM States
+            if self.mode == 'lstm':
+                self.dqn_hidden_state, self.dqn_cell_state = self.dqn.init_states()
+                self.target_hidden_state, self.target_cell_state = self.target.init_states()
+
             states = self.get_initial_states()
             losses = []
             checkpoint_flag = False
@@ -318,12 +328,9 @@ class Agent(object):
             reward = 0
             done = False
             while True:
-                # Init LSTM States
-                if self.mode == 'lstm':
-                    self.hidden_state, self.cell_state = self.dqn.init_states()
-
                 # Get Action
                 action: torch.LongTensor = self.select_action(states)
+
                 for _ in range(self.frame_skipping):
                     # step 에서 나온 observation은 버림
                     observation, reward, done, info = self.env.step(action[0, 0])
@@ -404,7 +411,8 @@ class Agent(object):
         if self.mode == 'dqn':
             q_pred = self.dqn(state_batch)
         elif self.mode == 'lstm':
-            q_pred, self.hidden_state, self.cell_state = self.dqn(state_batch, self.hidden_state, self.cell_state)
+            q_pred, self.dqn_hidden_state, self.dqn_cell_state = self.dqn(state_batch, self.dqn_hidden_state,
+                                                                          self.dqn_cell_state)
 
         q_values = q_pred.gather(1, action_batch)
 
@@ -413,16 +421,17 @@ class Agent(object):
         if self.mode == 'dqn':
             target_pred = self.target(non_final_next_state_batch)
         elif self.mode == 'lstm':
-            target_pred, self.hidden_state, self.cell_state = self.target(non_final_next_state_batch,
-                                                                          self.hidden_state, self.cell_state)
+            target_pred, self.target_hidden_state, self.target_cell_state = self.target(non_final_next_state_batch,
+                                                                                        self.target_hidden_state,
+                                                                                        self.target_cell_state)
 
         target_values[non_final_mask] = reward_batch[non_final_mask] + target_pred.max(1)[0] * gamma
-        target_values[final_mask] = reward_batch[final_mask]
+        target_values[final_mask] = reward_batch[final_mask].detach()
 
         loss = F.smooth_l1_loss(q_values, target_values)
         # loss = torch.mean((target_values - q_values) ** 2)
         self.optimizer.zero_grad()
-        loss.backward()
+        loss.backward(retain_variables=True)
 
         if self.clip:
             for param in self.dqn.parameters():
