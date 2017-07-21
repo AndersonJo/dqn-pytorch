@@ -254,7 +254,7 @@ class Agent(object):
         # Epsilon
         self.epsilon = EPSILON_START
 
-    def select_action(self, states: np.array, hidden_state=None, cell_state=None) -> tuple:
+    def select_action(self, states: np.array) -> tuple:
         """
         :param states: 게임화면
         :return: LongTensor (int64) 값이며, [[index]] 이런 형태를 갖고 있다.
@@ -280,7 +280,8 @@ class Agent(object):
             action = self.dqn(states_variable).data.cpu().max(1)[1]
         elif self.mode == 'lstm':
             action, self.hidden_state, self.cell_state = \
-                self.dqn(states_variable, hidden_state, cell_state).data.cpu().max(1)[1]
+                self.dqn(states_variable, self.hidden_state, self.cell_state)
+            action = action.data.cpu().max(1)[1]
 
         return action
 
