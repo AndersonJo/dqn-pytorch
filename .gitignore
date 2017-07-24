@@ -10,6 +10,4 @@
 video
 
 # Log
-dqn.log
-dqn_lstm.log
-dqn_dqn.log
+*.log

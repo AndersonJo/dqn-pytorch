@@ -39,7 +39,7 @@ EPSILON_END = 0.01
 EPSILON_DECAY = 100000
 
 # LSTM Memory
-LSTM_MEMORY = 256
+LSTM_MEMORY = 128
 
 # ETC Options
 TARGET_UPDATE_INTERVAL = 2500
@@ -431,11 +431,11 @@ class Agent(object):
                         score, real_play_count = self.play(logging=False, human=False)
                         scores.append(score)
                         counts.append(real_play_count)
-                        logger.debug(f'[{self.step}] [Validation] play_score: {score}, play_count: {real_play_count}')
+                        logger.debug(f'[{self.step}] [CheckPoint] play_score: {score}, play_count: {real_play_count}')
                     real_score = int(np.mean(scores))
                     real_play_count = int(np.mean(counts))
 
-                    if self.best_score < real_score:
+                    if self.best_score <= real_score:
                         self.best_score = real_score
                         logger.debug(f'[{self.step}] [Validation] Play: {self.best_score} [Best Play] [checkpoint]')
                         self.save_checkpoint(
