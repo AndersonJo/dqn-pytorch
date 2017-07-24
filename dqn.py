@@ -23,8 +23,9 @@ from torch.autograd import Variable
 from torch.nn import functional as F
 from torchvision import transforms as T
 
-GAME_NAME = 'FlappyBird-v0'  # only Pygames are supported
-# GAME_NAME = 'MonsterKon-v0'  # only Pygames are supported
+# Support Games
+# 'FlappyBird-v0'
+# 'MonsterKon-v0'
 
 # Training
 BATCH_SIZE = 32
@@ -34,17 +35,18 @@ REPLAY_MEMORY = 50000
 
 # Epsilon
 EPSILON_START = 1.0
-EPSILON_END = 0.05
-EPSILON_DECAY = 40000
+EPSILON_END = 0.01
+EPSILON_DECAY = 100000
 
 # LSTM Memory
-LSTM_MEMORY = 128
+LSTM_MEMORY = 256
 
 # ETC Options
-TARGET_UPDATE_INTERVAL = 500
+TARGET_UPDATE_INTERVAL = 2500
 CHECKPOINT_INTERVAL = 5000
 PLAY_INTERVAL = 100
 PLAY_REPEAT = 10
+LEARNING_RATE = 0.0001
 
 parser = argparse.ArgumentParser(description='DQN Configuration')
 parser.add_argument('--model', default='dqn', type=str, help='forcefully set step')
@@ -60,9 +62,14 @@ parser.add_argument('--noclip', dest='clip', action='store_false', help='not cli
 parser.add_argument('--skip_action', default=4, type=int, help='Skipping actions')
 parser.add_argument('--record', dest='record', action='store_true', help='Record playing a game')
 parser.add_argument('--inspect', dest='inspect', action='store_true', help='Inspect CNN')
+parser.add_argument('--seed', default=111, type=int, help='random seed')
 parser.set_defaults(clip=True, load_latest=True, record=False, inspect=False)
-
 parser: argparse.Namespace = parser.parse_args()
+
+# Random Seed
+torch.manual_seed(parser.seed)
+torch.cuda.manual_seed(parser.seed)
+np.random.seed(parser.seed)
 
 # Logging
 logger = logging.getLogger('DQN')
@@ -72,6 +79,10 @@ formatter = logging.Formatter('%(message)s')
 file_handler = logging.FileHandler(f'dqn_{parser.model}.log')
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
+
+
+
+
 
 
 class ReplayMemory(object):
@@ -283,7 +294,7 @@ class Agent(object):
         self.target: DQN = copy.deepcopy(self.dqn)
 
         # Optimizer
-        self.optimizer = optim.Adam(self.dqn.parameters(), lr=0.0001)
+        self.optimizer = optim.Adam(self.dqn.parameters(), lr=LEARNING_RATE)
 
         # Replay Memory
         self.replay = ReplayMemory()
@@ -435,16 +446,16 @@ class Agent(object):
             # Play
             if play_flag:
                 play_flag = False
-                logger.info(f'[{self.step}] [Validation] Mean Play Count: {real_play_count},  Mean Score: {real_score}')
+                logger.info(f'[{self.step}] [Validation] mean_score: {real_score}, mean_play_count: {real_play_count}')
 
             # Logging
             mean_loss = np.mean(losses)
             target_update_msg = '  [target updated]' if target_update_flag else ''
             # save_msg = '  [checkpoint!]' if checkpoint_flag else ''
             logger.info(f'[{self.step}] Loss:{mean_loss:<8.4} Play:{play_steps:<3}  '  # AvgPlay:{self.play_step:<4.3}
-                         f'RewardSum:{reward_sum:<3} Q:[{q_mean[0]:<6.4}, {q_mean[1]:<6.4}] '
-                         f'T:[{target_mean[0]:<6.4}, {target_mean[1]:<6.4}] '
-                         f'Epsilon:{self.epsilon:<6.4}{target_update_msg}')
+                        f'RewardSum:{reward_sum:<3} Q:[{q_mean[0]:<6.4}, {q_mean[1]:<6.4}] '
+                        f'T:[{target_mean[0]:<6.4}, {target_mean[1]:<6.4}] '
+                        f'Epsilon:{self.epsilon:<6.4}{target_update_msg}')
 
     def optimize(self, gamma: float):
         if self.mode == 'lstm':
@@ -545,8 +556,6 @@ class Agent(object):
         files = glob.glob(f'dqn_checkpoints/chkpoint_{self.mode}_*.pth.tar')
 
         if files:
-            print(files[0])
-            print(r.search(files[0]))
             files = list(map(lambda x: [int(r.search(x).group('number')), x], files))
             files = sorted(files, key=lambda x: x[0])
             latest_file = files[-1][1]
