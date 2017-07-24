@@ -428,7 +428,7 @@ class Agent(object):
             # Play
             if play_flag:
                 play_flag = False
-                logger.debug(f'[{self.step}] Model play: {self.best_play_count}')
+                logger.debug(f'[{self.step}] Model play: {real_play_count}')
 
             # Logging
             mean_loss = np.mean(losses)
