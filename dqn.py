@@ -348,12 +348,6 @@ class Agent(object):
         while True:
             # Init LSTM States
             if self.mode == 'lstm':
-                # For Optimization
-                self.dqn_hidden_state, self.dqn_cell_state = self.dqn.reset_states(self.dqn_hidden_state,
-                                                                                   self.dqn_cell_state)
-                self.target_hidden_state, self.target_cell_state = self.dqn.reset_states(self.target_hidden_state,
-                                                                                         self.target_cell_state)
-
                 # For Training
                 self.train_hidden_state, self.train_cell_state = self.dqn.reset_states(self.train_hidden_state,
                                                                                        self.train_cell_state)
@@ -440,6 +434,12 @@ class Agent(object):
                          f'Epsilon:{self.epsilon:<6.4}{target_update_msg}')
 
     def optimize(self, gamma: float):
+        if self.mode == 'lstm':
+            # For Optimization
+            self.dqn_hidden_state, self.dqn_cell_state = self.dqn.reset_states(self.dqn_hidden_state,
+                                                                               self.dqn_cell_state)
+            self.target_hidden_state, self.target_cell_state = self.dqn.reset_states(self.target_hidden_state,
+                                                                                     self.target_cell_state)
 
         # Get Sample
         transitions = self.replay.sample(BATCH_SIZE)
