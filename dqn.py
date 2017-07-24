@@ -44,6 +44,7 @@ LSTM_MEMORY = 128
 TARGET_UPDATE_INTERVAL = 500
 CHECKPOINT_INTERVAL = 5000
 PLAY_INTERVAL = 100
+PLAY_REPEAT = 10
 
 parser = argparse.ArgumentParser(description='DQN Configuration')
 parser.add_argument('--model', default='dqn', type=str, help='forcefully set step')
@@ -248,7 +249,7 @@ class Agent(object):
         self.frame_skipping: int = args.skip_action
         self._state_buffer = deque(maxlen=self.action_repeat)
         self.step = 0
-        self.best_play_count = args.best or 0
+        self.best_score = args.best or 0
 
         self._play_steps = deque(maxlen=5)
 
@@ -360,6 +361,7 @@ class Agent(object):
             play_flag = False
             play_steps = 0
             real_play_count = 0
+            real_score = 0
 
             reward = 0
             done = False
@@ -411,19 +413,28 @@ class Agent(object):
                 # Play
                 if self.step % PLAY_INTERVAL == 0:
                     play_flag = True
-                    real_play_count = self.play(logging=False, human=False)
-                    if self.best_play_count < real_play_count:
-                        self.best_play_count = real_play_count
-                        logger.debug(f'[{self.step}] Play: {self.best_play_count} [Best Play] [checkpoint]')
+
+                    scores = []
+                    counts = []
+                    for _ in range(PLAY_REPEAT):
+                        score, real_play_count = self.play(logging=False, human=False)
+                        scores.append(score)
+                        counts.append(real_play_count)
+                    real_score = int(np.mean(scores))
+                    real_play_count = int(np.mean(counts))
+
+                    if self.best_score < real_score:
+                        self.best_score = real_score
+                        logger.debug(f'[{self.step}] Play: {self.best_score} [Best Play] [checkpoint]')
                         self.save_checkpoint(
-                            filename=f'dqn_checkpoints/chkpoint_{self.mode}_{self.best_play_count}.pth.tar')
+                            filename=f'dqn_checkpoints/chkpoint_{self.mode}_{self.best_score}.pth.tar')
 
             self._play_steps.append(play_steps)
 
             # Play
             if play_flag:
                 play_flag = False
-                logger.debug(f'[{self.step}] Model play: {real_play_count}')
+                logger.debug(f'[{self.step}] Mean Play Count: {real_play_count},  Mean Score: {real_score}')
 
             # Logging
             mean_loss = np.mean(losses)
@@ -515,7 +526,7 @@ class Agent(object):
             'target': self.target.state_dict(),
             'optimizer': self.optimizer.state_dict(),
             'step': self.step,
-            'best': self.best_play_count
+            'best': self.best_score
         }
         torch.save(checkpoint, filename)
 
@@ -525,7 +536,7 @@ class Agent(object):
         self.target.load_state_dict(checkpoint['target'])
         self.optimizer.load_state_dict(checkpoint['optimizer'])
         self.step = checkpoint['step']
-        self.best_play_count = self.best_play_count or checkpoint['best']
+        self.best_score = self.best_score or checkpoint['best']
 
     def load_latest_checkpoint(self, epsilon=None):
         r = re.compile('chkpoint_(dqn|lstm)_(?P<number>\d+)\.pth\.tar$')
@@ -547,6 +558,7 @@ class Agent(object):
         observation = self.env.game.reset()
         states = self.get_initial_states()
         count = 0
+        total_score = 0
 
         if self.mode == 'lstm':
             self.test_hidden_state, self.test_cell_state = self.dqn.reset_states(self.test_hidden_state,
@@ -575,6 +587,8 @@ class Agent(object):
                 self.add_state(next_state)
                 states = self.recent_states()
 
+                total_score += reward
+
                 if done:
                     break
 
@@ -587,7 +601,7 @@ class Agent(object):
             if done:
                 break
         self.env.game.close()
-        return count
+        return total_score, count
 
     def inspect(self):
         print(dir(self.dqn.conv1))
