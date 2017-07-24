@@ -143,11 +143,11 @@ class LSTMDQN(nn.Module):
         self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
         self.conv4 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
 
-        self.lstm = nn.LSTM(16, LSTM_MEMORY, 2)  # (Input, Hidden, Num Layers)
+        self.lstm = nn.LSTM(16, LSTM_MEMORY, 1)  # (Input, Hidden, Num Layers)
 
-        self.affine1 = nn.Linear(LSTM_MEMORY * 64, 2048)
-        self.affine2 = nn.Linear(2048, 512)
-        self.affine3 = nn.Linear(512, self.n_action)
+        self.affine1 = nn.Linear(LSTM_MEMORY * 64, 512)
+        # self.affine2 = nn.Linear(2048, 512)
+        self.affine2 = nn.Linear(512, self.n_action)
 
     def forward(self, x, hidden_state, cell_state):
         # CNN
@@ -163,13 +163,13 @@ class LSTMDQN(nn.Module):
 
         # Fully Connected Layers
         h = F.relu(self.affine1(h.view(h.size(0), -1)))
-        h = F.relu(self.affine2(h.view(h.size(0), -1)))
-        h = self.affine3(h)
+        # h = F.relu(self.affine2(h.view(h.size(0), -1)))
+        h = self.affine2(h)
         return h, next_hidden_state, next_cell_state
 
     def init_states(self) -> [Variable, Variable]:
-        hidden_state = Variable(torch.zeros(2, 64, LSTM_MEMORY).cuda())
-        cell_state = Variable(torch.zeros(2, 64, LSTM_MEMORY).cuda())
+        hidden_state = Variable(torch.zeros(1, 64, LSTM_MEMORY).cuda())
+        cell_state = Variable(torch.zeros(1, 64, LSTM_MEMORY).cuda())
         return hidden_state, cell_state
 
     def reset_states(self, hidden_state, cell_state):
@@ -415,19 +415,17 @@ class Agent(object):
 
                 # Play
                 if self.step % PLAY_INTERVAL == 0:
-                    play_flag = True
+                    real_play_count = self.play(logging=False, human=False)
+                    if self.best_play_count < real_play_count:
+                        self.best_play_count = real_play_count
+                        logger.debug(f'[{self.step}] Play: {self.best_play_count} [Best Play] [checkpoint]')
+                        self.save_checkpoint(
+                            filename=f'dqn_checkpoints/chkpoint_{self.mode}_{self.best_play_count}.pth.tar')
 
             self._play_steps.append(play_steps)
 
             # Play
             if play_flag:
-                real_play_count = self.play(logging=False, human=False)
-                if self.best_play_count < real_play_count:
-                    self.best_play_count = real_play_count
-                    logger.debug(f'[{self.step}] Play: {self.best_play_count} [Best Play] [checkpoint]')
-                    self.save_checkpoint(
-                        filename=f'dqn_checkpoints/chkpoint_{self.mode}_{self.best_play_count}.pth.tar')
-
                 play_flag = False
                 logger.debug(f'[{self.step}] Model play: {self.best_play_count}')
 
