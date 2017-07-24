@@ -45,8 +45,6 @@ TARGET_UPDATE_INTERVAL = 500
 CHECKPOINT_INTERVAL = 5000
 PLAY_INTERVAL = 100
 
-
-
 parser = argparse.ArgumentParser(description='DQN Configuration')
 parser.add_argument('--model', default='dqn', type=str, help='forcefully set step')
 parser.add_argument('--step', default=None, type=int, help='forcefully set step')
@@ -62,12 +60,14 @@ parser.add_argument('--record', dest='record', action='store_true', help='Record
 parser.add_argument('--inspect', dest='inspect', action='store_true', help='Inspect CNN')
 parser.set_defaults(clip=True, load_latest=True, record=False, inspect=False)
 
+parser: argparse.Namespace = parser.parse_args()
+
 # Logging
 logger = logging.getLogger('DQN')
 logger.setLevel(logging.DEBUG)
 formatter = logging.Formatter('%(message)s')
 
-file_handler = logging.FileHandler('dqn.log')
+file_handler = logging.FileHandler(f'dqn_{parser.model}.log')
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 
@@ -613,22 +613,20 @@ class Agent(object):
         toimage(image, cmin=0, cmax=255).save(name)
 
 
-def main():
-    args: argparse.Namespace = parser.parse_args()
-
-    agent = Agent(args)
-    if args.load_latest and not args.checkpoint:
+def main(parser):
+    agent = Agent(parser)
+    if parser.load_latest and not parser.checkpoint:
         agent.load_latest_checkpoint()
-    elif args.checkpoint:
-        agent.load_checkpoint(args.checkpoint)
+    elif parser.checkpoint:
+        agent.load_checkpoint(parser.checkpoint)
 
-    if args.mode.lower() == 'play':
+    if parser.mode.lower() == 'play':
         agent.play()
-    elif args.mode.lower() == 'train':
+    elif parser.mode.lower() == 'train':
         agent.train()
-    elif args.mode.lower() == 'inspect':
+    elif parser.mode.lower() == 'inspect':
         agent.inspect()
 
 
 if __name__ == '__main__':
-    main()
+    main(parser)
