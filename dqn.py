@@ -48,6 +48,7 @@ PLAY_INTERVAL = 100
 parser = argparse.ArgumentParser(description='DQN Configuration')
 parser.add_argument('--model', default='dqn', type=str, help='forcefully set step')
 parser.add_argument('--step', default=None, type=int, help='forcefully set step')
+parser.add_argument('--best', default=None, type=int, help='forcefully set best')
 parser.add_argument('--load_latest', dest='load_latest', action='store_true', help='load latest checkpoint')
 parser.add_argument('--no_load_latest', dest='load_latest', action='store_false', help='train from the scrach')
 parser.add_argument('--checkpoint', default=None, type=str, help='specify the checkpoint file name')
@@ -247,7 +248,7 @@ class Agent(object):
         self.frame_skipping: int = args.skip_action
         self._state_buffer = deque(maxlen=self.action_repeat)
         self.step = 0
-        self.best_play_count = 0
+        self.best_play_count = args.best or 0
 
         self._play_steps = deque(maxlen=5)
 
@@ -524,7 +525,7 @@ class Agent(object):
         self.target.load_state_dict(checkpoint['target'])
         self.optimizer.load_state_dict(checkpoint['optimizer'])
         self.step = checkpoint['step']
-        self.best_play_count = checkpoint['best']
+        self.best_play_count = self.best_play_count or checkpoint['best']
 
     def load_latest_checkpoint(self, epsilon=None):
         r = re.compile('chkpoint_(dqn|lstm)_(?P<number>\d+)\.pth\.tar$')
