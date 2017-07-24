@@ -415,6 +415,7 @@ class Agent(object):
 
                 # Play
                 if self.step % PLAY_INTERVAL == 0:
+                    play_flag = True
                     real_play_count = self.play(logging=False, human=False)
                     if self.best_play_count < real_play_count:
                         self.best_play_count = real_play_count
