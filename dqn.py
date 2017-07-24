@@ -81,10 +81,6 @@ file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 
 
-
-
-
-
 class ReplayMemory(object):
     def __init__(self, capacity=REPLAY_MEMORY):
         self.capacity = capacity
@@ -261,6 +257,7 @@ class Agent(object):
         self._state_buffer = deque(maxlen=self.action_repeat)
         self.step = 0
         self.best_score = args.best or -10
+        self.best_count = 0
 
         self._play_steps = deque(maxlen=5)
 
@@ -431,13 +428,14 @@ class Agent(object):
                         score, real_play_count = self.play(logging=False, human=False)
                         scores.append(score)
                         counts.append(real_play_count)
-                        logger.debug(f'[{self.step}] [CheckPoint] play_score: {score}, play_count: {real_play_count}')
+                        logger.debug(f'[{self.step}] [Validation] play_score: {score}, play_count: {real_play_count}')
                     real_score = int(np.mean(scores))
                     real_play_count = int(np.mean(counts))
 
                     if self.best_score <= real_score:
                         self.best_score = real_score
-                        logger.debug(f'[{self.step}] [Validation] Play: {self.best_score} [Best Play] [checkpoint]')
+                        self.best_count = real_play_count
+                        logger.debug(f'[{self.step}] [CheckPoint] Play: {self.best_score} [Best Play] [checkpoint]')
                         self.save_checkpoint(
                             filename=f'dqn_checkpoints/chkpoint_{self.mode}_{self.best_score}.pth.tar')
 
@@ -538,7 +536,8 @@ class Agent(object):
             'target': self.target.state_dict(),
             'optimizer': self.optimizer.state_dict(),
             'step': self.step,
-            'best': self.best_score
+            'best': self.best_score,
+            'best_count': self.best_count
         }
         torch.save(checkpoint, filename)
 
@@ -549,6 +548,7 @@ class Agent(object):
         self.optimizer.load_state_dict(checkpoint['optimizer'])
         self.step = checkpoint['step']
         self.best_score = self.best_score or checkpoint['best']
+        self.best_count = checkpoint['best_count']
 
     def load_latest_checkpoint(self, epsilon=None):
         r = re.compile('chkpoint_(dqn|lstm)_(?P<number>-?\d+)\.pth\.tar$')
