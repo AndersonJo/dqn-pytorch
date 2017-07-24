@@ -575,6 +575,9 @@ class Agent(object):
                 self.add_state(next_state)
                 states = self.recent_states()
 
+                if done:
+                    break
+
             # Logging
             count += 1
             if logging:
