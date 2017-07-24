@@ -249,7 +249,7 @@ class Agent(object):
         self.frame_skipping: int = args.skip_action
         self._state_buffer = deque(maxlen=self.action_repeat)
         self.step = 0
-        self.best_score = args.best or 0
+        self.best_score = args.best or -10
 
         self._play_steps = deque(maxlen=5)
 
@@ -420,12 +420,13 @@ class Agent(object):
                         score, real_play_count = self.play(logging=False, human=False)
                         scores.append(score)
                         counts.append(real_play_count)
+                        logger.debug(f'[{self.step}] [Validation] play_score: {score}, play_count: {real_play_count}')
                     real_score = int(np.mean(scores))
                     real_play_count = int(np.mean(counts))
 
                     if self.best_score < real_score:
                         self.best_score = real_score
-                        logger.debug(f'[{self.step}] Play: {self.best_score} [Best Play] [checkpoint]')
+                        logger.debug(f'[{self.step}] [Validation] Play: {self.best_score} [Best Play] [checkpoint]')
                         self.save_checkpoint(
                             filename=f'dqn_checkpoints/chkpoint_{self.mode}_{self.best_score}.pth.tar')
 
@@ -434,13 +435,13 @@ class Agent(object):
             # Play
             if play_flag:
                 play_flag = False
-                logger.debug(f'[{self.step}] Mean Play Count: {real_play_count},  Mean Score: {real_score}')
+                logger.info(f'[{self.step}] [Validation] Mean Play Count: {real_play_count},  Mean Score: {real_score}')
 
             # Logging
             mean_loss = np.mean(losses)
             target_update_msg = '  [target updated]' if target_update_flag else ''
             # save_msg = '  [checkpoint!]' if checkpoint_flag else ''
-            logger.debug(f'[{self.step}] Loss:{mean_loss:<8.4} Play:{play_steps:<3}  '  # AvgPlay:{self.play_step:<4.3}
+            logger.info(f'[{self.step}] Loss:{mean_loss:<8.4} Play:{play_steps:<3}  '  # AvgPlay:{self.play_step:<4.3}
                          f'RewardSum:{reward_sum:<3} Q:[{q_mean[0]:<6.4}, {q_mean[1]:<6.4}] '
                          f'T:[{target_mean[0]:<6.4}, {target_mean[1]:<6.4}] '
                          f'Epsilon:{self.epsilon:<6.4}{target_update_msg}')
@@ -539,7 +540,7 @@ class Agent(object):
         self.best_score = self.best_score or checkpoint['best']
 
     def load_latest_checkpoint(self, epsilon=None):
-        r = re.compile('chkpoint_(dqn|lstm)_(?P<number>\d+)\.pth\.tar$')
+        r = re.compile('chkpoint_(dqn|lstm)_(?P<number>-?\d+)\.pth\.tar$')
 
         files = glob.glob(f'dqn_checkpoints/chkpoint_{self.mode}_*.pth.tar')
 
