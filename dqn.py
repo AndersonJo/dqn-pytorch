@@ -37,11 +37,15 @@ EPSILON_START = 1.0
 EPSILON_END = 0.05
 EPSILON_DECAY = 40000
 
+# LSTM Memory
+LSTM_MEMORY = 128
+
 # ETC Options
 TARGET_UPDATE_INTERVAL = 500
 CHECKPOINT_INTERVAL = 5000
 PLAY_INTERVAL = 100
-LSTM_MEMORY = 128
+
+
 
 parser = argparse.ArgumentParser(description='DQN Configuration')
 parser.add_argument('--model', default='dqn', type=str, help='forcefully set step')
@@ -166,8 +170,12 @@ class LSTMDQN(nn.Module):
     def init_states(self) -> [Variable, Variable]:
         hidden_state = Variable(torch.zeros(2, 64, LSTM_MEMORY).cuda())
         cell_state = Variable(torch.zeros(2, 64, LSTM_MEMORY).cuda())
-
         return hidden_state, cell_state
+
+    def reset_states(self, hidden_state, cell_state):
+        hidden_state[:, :, :] = 0
+        cell_state[:, :, :] = 0
+        return hidden_state.detach(), cell_state.detach()
 
 
 class Environment(object):
@@ -255,8 +263,16 @@ class Agent(object):
             self.dqn: DQN = DQN(self.env.action_space)
         elif self.mode == 'lstm':
             self.dqn: LSTMDQN = LSTMDQN(self.env.action_space)
+
+            # For Optimization
             self.dqn_hidden_state, self.dqn_cell_state = self.dqn.init_states()
             self.target_hidden_state, self.target_cell_state = self.dqn.init_states()
+
+            # For Training Play
+            self.train_hidden_state, self.train_cell_state = self.dqn.init_states()
+
+            # For Validation Play
+            self.test_hidden_state, self.test_cell_state = self.dqn.init_states()
 
         if cuda:
             self.dqn.cuda()
@@ -301,7 +317,7 @@ class Agent(object):
             action = self.dqn(states_variable).data.cpu().max(1)[1]
         elif self.mode == 'lstm':
             action, self.dqn_hidden_state, self.dqn_cell_state = \
-                self.dqn(states_variable, self.dqn_hidden_state, self.dqn_cell_state)
+                self.dqn(states_variable, self.train_hidden_state, self.train_cell_state)
             action = action.data.cpu().max(1)[1]
 
         return action
@@ -332,8 +348,15 @@ class Agent(object):
         while True:
             # Init LSTM States
             if self.mode == 'lstm':
-                self.dqn_hidden_state, self.dqn_cell_state = self.dqn.init_states()
-                self.target_hidden_state, self.target_cell_state = self.target.init_states()
+                # For Optimization
+                self.dqn_hidden_state, self.dqn_cell_state = self.dqn.reset_states(self.dqn_hidden_state,
+                                                                                   self.dqn_cell_state)
+                self.target_hidden_state, self.target_cell_state = self.dqn.reset_states(self.target_hidden_state,
+                                                                                         self.target_cell_state)
+
+                # For Training
+                self.train_hidden_state, self.train_cell_state = self.dqn.reset_states(self.train_hidden_state,
+                                                                                       self.train_cell_state)
 
             states = self.get_initial_states()
             losses = []
@@ -526,8 +549,8 @@ class Agent(object):
         count = 0
 
         if self.mode == 'lstm':
-            self.dqn_hidden_state, self.dqn_cell_state = self.dqn.init_states()
-            self.target_hidden_state, self.target_cell_state = self.target.init_states()
+            self.test_hidden_state, self.test_cell_state = self.dqn.reset_states(self.test_hidden_state,
+                                                                                 self.test_cell_state)
 
         while True:
             # screen = self.env.game.render(mode='human')
@@ -539,7 +562,7 @@ class Agent(object):
                 dqn_pred = self.dqn(states_variable)
             elif self.mode == 'lstm':
                 dqn_pred, self.dqn_hidden_state, self.dqn_cell_state = \
-                    self.dqn(states_variable, self.dqn_hidden_state, self.dqn_cell_state)
+                    self.dqn(states_variable, self.test_hidden_state, self.test_cell_state)
 
             action = dqn_pred.data.cpu().max(1)[1][0, 0]
 
