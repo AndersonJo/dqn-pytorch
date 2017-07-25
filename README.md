@@ -57,6 +57,12 @@ git clone https://github.com/lusob/gym-ple.git
 cd gym-ple/
 sudo pip3 install -e .
 ```
+## Comparison
+
+| Algorithm | Game | Best Score | 
+|:----------|:-----|:-----------|
+| DQN       | FlappyBird | 65   |
+| LSTM-based DQN | FlappyBird | 83 |
 
 # How to use
 
@@ -69,6 +75,13 @@ mkdir dqn_checkpoints
 python3 dqn.py --mode=train
 ```
 
+Training LSTM-based DQN
+
+```
+mkdir dqn_checkpoints
+python3 dqn.py --mode=train --model=lstm
+```
+
 ## Playing 
 
 It automatically loads the latest checkpoint (it loads saved model parameters). <br>
@@ -77,6 +90,12 @@ If there is no checkpoint (You might have not trained it yet), the play is just 
 
 ```
 python3 dqn.py --mode=play
+```
+
+playing LSTM-based DQN is like.. 
+
+```
+python3 dqn.py --mode=play --model=lstm
 ```
 
 ## Recoding
