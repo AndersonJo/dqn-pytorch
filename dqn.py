@@ -29,7 +29,6 @@ from torchvision import transforms as T
 
 # Training
 BATCH_SIZE = 32
-ZERO_ACCEPT_RATE = 0.1  # Zero Score State Accept Rate. So as to reduce zero-score state
 
 # Replay Memory
 REPLAY_MEMORY = 50000
@@ -95,11 +94,6 @@ class ReplayMemory(object):
         action은 select_action()함수에서부터 LongTensor로 리턴해주기 때문에,
         여기서 변경해줄필요는 없음
         """
-        if reward == 0:
-            _rand = np.random.rand()
-            if _rand >= ZERO_ACCEPT_RATE:
-                return None
-
         state = torch.FloatTensor(state)
         reward = torch.FloatTensor([reward])
         if next_state is not None:
