@@ -45,7 +45,7 @@ LSTM_MEMORY = 128
 TARGET_UPDATE_INTERVAL = 1000
 CHECKPOINT_INTERVAL = 5000
 PLAY_INTERVAL = 100
-PLAY_REPEAT = 10
+PLAY_REPEAT = 1
 LEARNING_RATE = 0.0001
 
 parser = argparse.ArgumentParser(description='DQN Configuration')
@@ -188,8 +188,9 @@ class LSTMDQN(nn.Module):
 
 
 class Environment(object):
-    def __init__(self, game, record=False, width=84, height=84):
+    def __init__(self, game, record=False, width=84, height=84, seed=0):
         self.game = gym.make(game)
+        self.game.seed(seed)
 
         if record:
             self.game = Monitor(self.game, './video', force=True)
@@ -252,6 +253,7 @@ class Agent(object):
     def __init__(self, args: argparse.Namespace, cuda=True, action_repeat: int = 4):
         # Init
         self.clip: bool = args.clip
+        self.seed: int = args.seed
         self.action_repeat: int = action_repeat
         self.frame_skipping: int = args.skip_action
         self._state_buffer = deque(maxlen=self.action_repeat)
@@ -262,7 +264,7 @@ class Agent(object):
         self._play_steps = deque(maxlen=5)
 
         # Environment
-        self.env = Environment(args.game, record=args.record)
+        self.env = Environment(args.game, record=args.record, seed=self.seed)
 
         # DQN Model
         self.dqn_hidden_state = self.dqn_cell_state = None
@@ -349,7 +351,6 @@ class Agent(object):
         return np.array(self._state_buffer)
 
     def train(self, gamma: float = 0.99, mode: str = 'rgb_array'):
-
         # Initial States
         reward_sum = 0.
         q_mean = [0., 0.]
@@ -569,6 +570,8 @@ class Agent(object):
         states = self.get_initial_states()
         count = 0
         total_score = 0
+
+        self.env.game.seed(self.seed)
 
         if self.mode == 'lstm':
             self.test_hidden_state, self.test_cell_state = self.dqn.reset_states(self.test_hidden_state,
