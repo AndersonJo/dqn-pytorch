@@ -64,6 +64,8 @@ sudo pip3 install -e .
 | DQN       | FlappyBird | 65   |
 | LSTM-based DQN | FlappyBird | 83 |
 
+* Best Score is the average value of 10 times of games. 
+
 # How to use
 
 ## Training
