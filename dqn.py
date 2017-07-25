@@ -258,7 +258,7 @@ class Agent(object):
         self.frame_skipping: int = args.skip_action
         self._state_buffer = deque(maxlen=self.action_repeat)
         self.step = 0
-        self.best_score = args.best or -10
+        self.best_score = args.best or -10000
         self.best_count = 0
 
         self._play_steps = deque(maxlen=5)
@@ -309,7 +309,7 @@ class Agent(object):
         """
         # Decrease epsilon value
         self.epsilon = EPSILON_END + (EPSILON_START - EPSILON_END) * \
-                                     math.exp(-1. * self.step / EPSILON_DECAY) + 6 / (1 + self.play_step)
+                                     math.exp(-1. * self.step / EPSILON_DECAY)
 
         if self.epsilon > random():
             # Random Action
@@ -508,6 +508,7 @@ class Agent(object):
         target_values[final_mask] = reward_batch[final_mask].detach()
 
         loss = F.smooth_l1_loss(q_values, target_values)
+
         # loss = torch.mean((target_values - q_values) ** 2)
         self.optimizer.zero_grad()
         loss.backward(retain_variables=True)
