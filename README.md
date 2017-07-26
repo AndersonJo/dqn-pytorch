@@ -20,7 +20,7 @@ The below image is actual result of the code here.
 
 [![Watch the video](http://img.youtube.com/vi/MkE6bnK7_DE/0.jpg)](https://youtu.be/MkE6bnK7_DE)
 
-[Here Youtube Video](https://youtu.be/MkE6bnK7_DE)
+[![Snake Game](https://img.youtube.com/vi/cBxXIII4qRM/0.jpg)](https://www.youtube.com/watch?v=cBxXIII4qRM)
 
 
 # Installation
