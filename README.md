@@ -4,6 +4,7 @@ The implementation of Deep Q Learning with Pytorch.
 
 * Replay Memory 
 * Simple Deep Q Learning (not using A3C or Dueling) 
+* Support for original DQN (the paper in Nature published by DeepMind) and LSTM-based DQN
 * Used Pytorch
 * Frame Skipping 
 * Target Network (for stability when training)
